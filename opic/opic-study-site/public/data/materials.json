@@ -1,0 +1,958 @@
+{
+  "meta": {
+    "levelGoal": 2,
+    "blurb": "OPIC 2급은 일상 토픽에 대해 짧고 또렷한 문장으로 말할 수 있으면 됩니다. First, Then, Finally 같은 연결어로 두세 문장씩 늘려 보세요.",
+    "tips": [
+      "2분 롤: 질문이 들리면 5초 쉬고, 골자( who / what / when / why )를 한 문장으로 먼저 잡는다.",
+      "답이 길지 않을 때: 예시 한 가지(구체적 단어) + 감정 한 마디(I felt ~ / It was ~).",
+      "모를 때: Honestly, I don't know much about it, but + 비슷한 경험으로 연결."
+    ],
+    "generatedAt": "2026-04-27T10:18:50.279Z"
+  },
+  "files": [
+    {
+      "id": "food음식-0",
+      "sourceFile": "food음식.docx",
+      "title": "<Food>",
+      "paragraphs": [
+        "<Food>",
+        "건강 식품 종류와 건강에 좋은 이유\n\nMany people try to eat healthy these days.\n\nWhat kinds of foods are healthy and why are they healthy for us?\n\n1. 우리나라 대표 음식 묘사\n\nWhat are some of the typical foods in your country? What dishes are popular?",
+        "소고기 Ok. first, Korean beef is a typical and healthy food.",
+        "단백질/면역력 It is high in protein, so it boosts immune system and strength.",
+        "김치-영양소 next, kimchi is iconic food and well, it is also good for health because Kimchi is rich in vitamins and fiber.",
+        "다양한 응용 Plus, you can also make kimchi pancakes or kimchi stew and kimchi fried rice using kimchi.",
+        "모든 음식과 궁합 최고 Actually, it goes well with any kinds of foods.",
+        "라면 So many Korean people enjoy kimchi with noodles or meat.",
+        "I like to eat kimchi with noodles as a night meal. (wow! I am hungry for noodles with kimchi now.)",
+        "마무리 Yeah~ Korean beef and Kimchi are go-to foods.",
+        "건강식품 구매 및 조리 방법",
+        "How do you shop for healthy food?\n\nWhat kinds of things do you have to do to cook healthy food?",
+        "집에서 먹기 까다로움 Well~ Beef is good for your health. We can buy meat in the supermarket. But it tastes better when you grill it and it's troublesome to eat at home. So, usually, people in Korea enjoy meat at restaurants",
+        "소/돼지 숯불구이 There are lots of barbeque restaurants for celebrations or parties such as birthday parties, staff dinners. For your information, most Korean BBQ places use charcoal grills. I guess that’s pretty unique, right?",
+        "Well~ They serve many kinds of meat like pork and beef.",
+        "숯불구이 방식 Most Korean barbecue restaurants, you grill the meat yourself. There is a grill right in the middle. After you order your meat, they will turn on the fire, place the meat on it.",
+        "반찬 Moreover, they serve various side dishes that include green onion salad, soup and kimchi something like that.",
+        "소고기 대체 삼겹살 You know what? Korean beef is really tender and delicious, but it’s super expensive.",
+        "So usually, I eat samgyeopsal, which is pork belly. It’s way cheaper, and when it’s well-cooked, it’s crispy on the outside and juicy inside. So good!",
+        "건강한 음식을 먹게 된 계기=\n\nTell me how you found out about eating healthy. Did your family eat healthy when you were growing up? Did your friend become healthier by eating healthy food? Describe in detail how you started to eat healthy.",
+        "Last year, I found that I had to make some changes after gaining some weight because I was lazy over the past few years.",
+        "You know what? I was actually eating a lot of late-night snacks.",
+        "Then, one day, I looked at myself in the mirror and thought, \"Oh my god, who are you? A big hamster?\" I got a beer belly (똥배) and a muffin top.",
+        "That’s when I decided it was time to start jogging in the park and eating clean foods.",
+        "Back then, I thought jogging was boring. and I missed my comfort foods.",
+        "However, I soon discovered that they had a lot of benefits. First, I felt alive and energized.",
+        "Plus, a year later, I got rid of that stubborn belly fat and felt much more fit and healthy.",
+        "Now, Jogging and eating well had become second nature to me.",
+        "\"Second nature\"라는 표현은 어떤 행동이나 습관이 너무 익숙해져서 자연스럽게, 마치 본능처럼 이루어진다는 뜻입니다. 다시 말해, 처음에는 의식적으로 노력해야 했던 일이 반복하면서 점차 익숙해져서 더 이상 생각하지 않아도 자연스럽게 하게 되는 것을 의미 so they’re a no-brainer for me.",
+        "건강 식품을 최근에 먹어 본 경험",
+        "When was the last time you had some healthy food? who was it with and how did you feel? What was special about that experience?",
+        "집들이 A few months ago, I moved to a new place, and I wanted to have a housewarming party.",
+        "Since my parents didn’t want to eat out, they came over to my new place instead.",
+        "But I didn't want to prepare lots of food because my wife and I are a dual-income couple, we were tired and we didn’t want to lift a finger.",
+        "음식 배달/간단한 음식 So I ordered seafood and chicken salad because my parents care about their health.",
+        "부모님 소감/내 느낌 You know~ My parents were happy with the food. After the party, I didn’t need to do the dishes.",
+        "Yeah~ Delivery service saves my time and energy.",
+        "It was so convenient, so I’ll go with delivery again next time."
+      ]
+    },
+    {
+      "id": "가족친구-1",
+      "sourceFile": "가족친구.docx",
+      "title": "Family / Friend",
+      "paragraphs": [
+        "Family / Friend",
+        "친구나 가족묘사",
+        "Can you describe friends or family members you see often. Who is he or she? What is she or he like?\n\n1: Describe a family or a friend you have. What is he or she like? What is special about that person? Give me all the details about that person.",
+        "와이프 \"I’d love to tell you about my wife. She is, without a doubt, the most important person in my life.\"",
+        "젊어보인다 You know what? She is unbelievably youthful. She’s actually in her early 40s now, but honestly, people often mistake her for being in her late 20s. She just has this natural glow and looks much younger than her actual age.",
+        "운동 열심히 한다. The secret is, she is a total fitness enthusiast. She works out every single day, no matter how busy she is. Whether it’s Pilates or jogging in the park, she never skips a workout. I’m always amazed by her discipline. It's really inspiring to see her staying so active.",
+        "식단 조절을 한다. When it comes to her lifestyle, she is also very mindful of what she eats. She tries to cut down on oily food and sugar, and she focuses on a balanced diet with lots of protein and veggies. She’s very strict about not eating late at night, which I find really hard to do myself!",
+        "성격 정신력 But honestly, what I like most is her personality. She is always positive. Even when things are hard, she always smiles. And you know what? Taking care of me and our kids all day is probably her hardest work! (Laughs) She is mentally very strong and she always takes good care of our family.",
+        "클로징 멘트 So yeah, I feel so lucky to have such a beautiful and energetic wife. I’m really proud of her.",
+        "가족 친구와 있을 때 주로 하는 일(현재시제)",
+        "when you get together with your friends or family, what kinds of things do you like to do together and why?",
+        "주중 ( Weekdays): Actually, I don't have enough time from Monday to Friday because I usually work overtime until late at night. So, I just do the laundry or fold the clothes after work.",
+        "주말 ( Weekends) - 대청소/아들 방 정리: On weekends, we do a deep clean. I also clean up my son's room. There are a lot of toys and books in his room.",
+        "내가 하는 일 ( What I Do): I am good at fixing machines, so I repair anything that breaks in the house. I'm also responsible for taking out the food waste. As you know, it’s smelly and a hassle, but I have to do it because my wife doesn’t want to deal with anything smelly.",
+        "아내 ( My Wife): Anyway, My wife is in charge of cooking, and she is a great cook.",
+        "아이들 ( My Children): Finally, my children tidy up their rooms.",
+        "After cleaning, I like to watch shows all day long and recharge my batteries.",
+        "*Now, tell me about the things that you do at home. What are some routines you engage in? what do you do during weekdays and weekends?",
+        "*Tell me what you do to keep your house clean and comfortable. What kind of housework do you do around your home?",
+        "최근 했던 일 묘사(과거시제)",
+        "2. tell me about the last time when you got together with your friends or family. Who was there and when was it? Tell me everything you did.",
+        "(최근 여행/최근 호텔 이용)",
+        "가족/친구 집에 방문한 경험",
+        "Talk about a last time when you visited a friend or a family member. What did you do when you visit them? What was memorable about that visit? Tell me everything from beginning to end.\n\n가족/친구같이 보낸 휴일 경험\n\n3. Could you tell me about a special event or a holiday you celebrated with your family or friends? Tell me about that event or the holiday from beginning to the end.\n\n(명절 스크립트 이용)\n\n아무데도 안감 Actually, I did not visit my friend or my parents.\n\n이유 Traditionally, Most Korean people visit their parents on holidays such as thanksgiving day and new year’s day. But because________________________________, we didn’t visit parents.",
+        "In the end, my family decided to stay home.",
+        "It was the first time I stayed home during 추석. The best part was we didn't have to deal with any annoying traffic jams.",
+        "늦잠 So I got up late, it was wonderful to get more sleep than usual.",
+        "늦점 Then I had brunch and then washed the dishes.",
+        "TV/스마트폰 After that, I watched television for a long time and spent time on my smartphone watching various YouTube channels.",
+        "Soon, I got tired of staying at home, so I went to the park with my kids and walked around.",
+        "저녁 For dinner, my wife was sick and tired of cooking. So we ordered food by a food delivery app.",
+        "You know, what we did wasn't anything huge, but those were “small but certain happiness”."
+      ]
+    },
+    {
+      "id": "레스토랑-r-2",
+      "sourceFile": "레스토랑 R.docx",
+      "title": "<레스토랑 롤플레이>",
+      "paragraphs": [
+        "<레스토랑 롤플레이>",
+        "친구 가족이 개업한 음식점에 대해 친구에게 문의(카페)",
+        "1. I’d like to give you a situation and ask you to act it out.",
+        "Your friend has a family member who has just opened up a restaurant.",
+        "Ask three or four questions to learn more about this new restaurant to decide whether you want to order food from it.",
+        "Hi, Tom. How are you? I’m calling to ask about your uncle’s new restaurant.",
+        "특별 메뉴? What are the specials? Ah~ chicken sandwiches and home-made yogurt?",
+        "sounds delicious! I am hungry for chicken sandwiches.",
+        "앱에 있니? Can I spot the restaurant on delivery apps? I want to check the menus with prices.",
+        "배달비? Is delivery free? or is there a minimum order amount? over 20,000 won for free delivery~ got it",
+        "직접 방문 시 주차비? If I visit there in person, is parking free? free for the first 2 hours. Ok.",
+        "Thank you.",
+        "잘못 배달된 점심 도시락 음식점에 전화해서 문제 해결 (카페)",
+        "2. I’m sorry but there is a problem. You ordered food to your workplace for a lunch meeting. When you opened the package, you realize that the delivery person has brought you someone else’s order.",
+        "Call the store. talk to the manager and offer two or three solutions.",
+        "Hi, I am a person who ordered lunch from your restaurant.",
+        "You know…there is a problem with the lunch box.",
+        "치샌&아아 They are not what I ordered. I ordered 5 chicken sandwiches and 5cups of Iced Americano.",
+        "참샌&뜨아&상사 뜨아 질색 But I got tuna sandwiches and Hot Americano. You know what! My VP doesn’t like Hot Americano even in winter.",
+        "착오 I'm pretty sure there was a mix-up with the order. What are you going to do? (=Could you check on that?) or could I get a refund? Ah~ you’ll send the right order again~ I see!",
+        "Ok! How long do I have to wait to get correct order? 10 minutes? well….ok.",
+        "we have 10 minutes left for the lunch meeting.",
+        "So please deliver the food quickly.",
+        "the contents aren't what I ordered.",
+        "the items I received are not what I ordered.",
+        "최근 음식점에서 했던 특별했던 식사 자리 묘사",
+        "3. That’s the end of the situation.",
+        "Tell me about a time when you went out for a special meal with your family, friends or co-workers. What was the occasion?",
+        "Where did you go and what happened during the meal?(레스토랑 테이크아웃/배달 음식점을 통한 특별한 행사 준비 경험 master key answer)=가족",
+        "집들이 A few months ago, I moved to a new place, and I wanted to have a housewarming party.",
+        "Since my parents didn’t want to eat out, they came over to my new place instead.",
+        "But I didn't want to prepare lots of food because my wife and I are a dual-income couple, we were tired and we didn’t want to lift a finger.",
+        "음식 배달/간단한 음식 So I ordered seafood and chicken salad because my parents care about their health.",
+        "부모님 소감/내 느낌 You know~ My parents were happy with the food. After the party, I didn’t need to do the dishes.",
+        "Yeah~ Delivery service saves my time and energy.",
+        "It was so convenient, so I’ll go with delivery again next time."
+      ]
+    },
+    {
+      "id": "레스토랑-3",
+      "sourceFile": "레스토랑.docx",
+      "title": "음식점",
+      "paragraphs": [
+        "음식점",
+        "보편적인 우리나라 음식점 묘사",
+        "Tell me about the restaurants in your country. What is a typical restaurant like?",
+        "Tell me about a restaurant near where you live. What kind of food does it serve? How are the prices? How often go there? Give me as much detail as you can about one of your favorite local places to eat.",
+        "Tip: 본인이 사는 지역에서 진행되는 모임을 묘사",
+        "Tell me about some of the gatherings or celebrations that happen at where you live.",
+        "지역 사람들이 주로 가는 셀레브레이션 또는 파티 장소 묘사 where do people usually have celebrations or parties in the area where you live or work? Is it at someone’s home, or a park, or a somewhere else? Tell me everything about the place in as much detail as you can.",
+        "소/돼지 숯불구이 There are lots of barbeque restaurants for celebrations or parties such as birthday parties and staff dinners. For your information, most Korean BBQ places use charcoal grills. It’s unique for you, right?",
+        "Well~ They serve many kinds of meat like pork and beef.",
+        "숯불구이 방식 Most Korean barbecue restaurants, Customers grill their own meat. There is a grill right in the middle. After you order your meat, they will turn on the fire and place the meat on it.",
+        "반찬 Moreover, they serve various side dishes such as green onion salad, soup and kimchi something like that.",
+        "소고기 대체 삼겹살 You know what? Korean beef is really tender but expensive. So I usually have Korean BBQ pork belly.(삼겹살이 훨씬 싸다.well-cooked 삼겹살 is crispy and juicy )",
+        "마무리 멘트",
+        "After all that greasy meat, I wash it down with some cold naengmyeon.\"(기름진 고기 먹고 냉면으로 개운하게 마무리해.)",
+        "I finish off with naengmyeon.",
+        "Payday is my official beef day",
+        "2. 음식점에 가면 어떻게 하는지 순서대로 묘사",
+        "2.Tell me about what you usually do when you eat at a restaurant. What do you do first, second, etc.?",
+        "When I go to a restaurant, here's what I typically do!",
+        "분위기 둘러봄 First, once I step into the restaurant, I usually take a moment to check out the interior and mood before finding a seat.",
+        "메뉴판 체크 Then, I check the menu. You know what? Nowadays, many places don't even have paper menus anymore.",
+        "Instead, they often have kiosks or tablet menus.",
+        "So, I scroll to choose what I want to eat.",
+        "리뷰 체크 And if I'm not sure about what to order, I check out visitor reviews and photos but I don’t trust them100% because sometimes if you write a good review, you might even get free drinks or food, even if the taste isn’t that great.",
+        "Give &take And if my friend pays for the food, I usually buy coffee and cake.",
+        "That's pretty much what I usually do when I go to a restaurant.",
+        "(=that’s pretty much it!)",
+        "어릴 적 음식점 경험",
+        "3.Describe for me a restaurant you remember from your childhood. What was the restaurant like? Was it different from the restaurant you visit today?",
+        "3. Tell me about the last time you used a take-out or delivery food service. what did you eat? Where was it? What do you remember about that experience?",
+        "(=when was the last time you ate at a restaurant with an international menu?",
+        "Where was it? Who were you with? What did you eat? Tell me entire story of that visit to that restaurant.)",
+        "=최근 외국 음식점 경험= = 테이크 아웃이나 배달 최근에 이용한 경험",
+        "Let me tell you about the time I had a hamburger when I was a kid.",
+        "Well~ Franchise burger restaurants haven't changed a lot over the years.",
+        "One day, I had a craving for a hamburger.",
+        "Then, my mom said” I am tired of cooking today. Let’s order food. What do you want to eat?”",
+        "I was like” Of course, HAMBURGER!”",
+        "So we ordered Burger king. She ordered a Whopper combo, and I got a Junior Whopper combo. But I got the wrong order!",
+        "Something was missing. There were no French fries.",
+        "From bad to worse, they gave me a Sprite instead of a Coke. So, I complained about it and then~ finally, I got the correct order.",
+        "That’s the unhappy experience."
+      ]
+    },
+    {
+      "id": "아침점심저녁-4",
+      "sourceFile": "아침점심저녁.docx",
+      "title": "음식: 본인이 평소 먹는 음식들",
+      "paragraphs": [
+        "음식: 본인이 평소 먹는 음식들",
+        "What do you eat on a regular day? Tell me everything that in detail.",
+        "건강: 바쁜 직장인들은 식사를 어떻게 하는지 설명 하세요.",
+        "How do busy working people usually get their meals on weekdays in Korea?",
+        "사내 식당 Many workplaces in Korea have onsite cafeterias right there in the workplace.",
+        "It's super convenient because you don't have to go outside to grab a bite.",
+        "아침 These days, many companies even provide breakfast for their employees. It’s usually something simple like sandwiches, cup noodles, boiled eggs, protein bars, or milk.",
+        "In my case, I have______________________________in the morning.",
+        "점심 for lunch, the cafeterias often offer various options, from Korean dishes to international dishes.",
+        "So, when I am in the mood for international dishes, I go with Pasta or sandwiches.",
+        "What’s more! They provide well-rounded meals with rice or noodles, side dishes called banchan, soups, and protein like meat, fish, or tofu. They want to give employees the energy to stay focused at work.",
+        "저녁 finally, for dinner,_________________________________________________________",
+        "Actually, even big companies like Samsung have something called “Chicken Day.”On that day, every employee gets a whole fried chicken and a bottle of Coke !yes, a whole chicken just for one person!People get super excited, and honestly, the cafeteria looks like a festival.",
+        "It’s small but certain happiness!"
+      ]
+    },
+    {
+      "id": "차렌트-5",
+      "sourceFile": "차렌트.docx",
+      "title": "<자동차 렌트>",
+      "paragraphs": [
+        "<자동차 렌트>",
+        "렌터카 업체 전화 문의",
+        "I’d like to give you a situation and ask you to act it out. You need to rent a car for about a week. Call the rental agency and ask several questions about the car you want to rent.",
+        "I'm looking to rent a car for a week. Can you tell me what options are available?",
+        "I’d like a mid-sized sedan with good gas mileage. What do you have?",
+        "Oh, that sounds good. How much is it per day?",
+        "$90? Hmm… that’s over my budget. Can you recommend something cheaper?",
+        "A Toyota Camry? That sounds great. Can you tell me more about it?",
+        "Got it. Thanks for the info!",
+        "One more thing—do I need to refuel the car before returning it?",
+        "Okay, thanks for your help!",
+        "*More expressions",
+        "Do I need to pay for insurance on the car?",
+        "And which car gets the best gas mileage for city driving?",
+        "렌터카 문제 있어서 회사에 전화해서 해결",
+        "2. I’m sorry, but there is a problem I need you to resolve. You have received the rental car, but there are many problems with it. Call the rental agency and explain the situation. Give two to three alternatives.",
+        "Hi there! is this SUPER MOTOR rental agency? Actually, I rented a car 10 minutes ago. My name is ________. Ok. You know ~ I've encountered several problems with the car. There's a strange noise coming from the engine, so I can’t start the engine. Well, I am in the middle of the road.",
+        "From bad to worse, it is smelly. I rented a non-smoking car. But this car has a terrible smell. let me talk to the manager. Yes, I would like to have a replacement car. Is it possible? Good!",
+        "Can I get a replacement car? Ok. How long will it take?",
+        "50 minutes? That’s too long. I’ll call roadside assistance instead.",
+        "긴급출동서비스",
+        "원하는 차종이 없어서 전화해서 문제해결",
+        "2. I am sorry, but there is a problem. You want to rent a specific car, but you find out that none are available.",
+        "Call the manager and describe the situation.",
+        "Explain why you want that particular kind of car and offer several alternatives to solve the problem.",
+        "Hi, I tried to book an SUV on your app, but it says to call the store.",
+        "I really need an SUV because I have three kids. Do you have any available?",
+        "Oh… fully booked? That’s disappointing.",
+        "Can you recommend another option?",
+        "A Tesla Model S? Sounds interesting. What features does it have?",
+        "A sunroof, navigation, and autopilot? That’s cool!",
+        "Is it within my budget?",
+        "Oh, there's a special EV promotion? That’s great!",
+        "I heard Jeju Island has lots of charging stations. That’s a big plus!",
+        "Okay, I’ll go with the Tesla. Thanks!",
+        "차 렌트 해 본 경험",
+        "3. That’s the end of the situation. Have you ever rented a car from the rental car agency? Why did you rent the car? When and where did you rent the car? Give me all the details about that experience.",
+        "Well… about two years ago, my family went to Jeju Island, so we rented an electric car. It was an amazing choice for some reasons.",
+        "Firstly, driving an electric car was incredibly easy. Jeju Island doesn’t have many complicated roads or heavy traffic, and most of the roads are flat.",
+        "Plus, electric car charging stations are everywhere, so we didn’t have to worry about running out of battery or finding a charging station. Since an electric car doesn’t have an engine, it’s also very quiet.",
+        "Moreover, we got a 50% discount at public parking lots. So, we decided to rent a Tesla. Tesla’s design was stunning, and the ride was very comfortable.",
+        "Finally, we made unforgettable memories by traveling to every corner of Jeju Island."
+      ]
+    },
+    {
+      "id": "친척집돌봐주기-2-r-6",
+      "sourceFile": "친척집돌봐주기(2) R.docx",
+      "title": "<Relative’s house>",
+      "paragraphs": [
+        "<Relative’s house>",
+        "*출제 빈도2위",
+        "친척집",
+        "친척이 여행 가는데 친척집 봐줘야 하는 상황에서 여러가지 질문하기.",
+        "1.I’d like to give you a situation and ask you to act it out. Someone in your family going on a vacation(trip.) and you have agreed to take care of (watch) his or her responsibility at home. Call your relative and ask three or four questions to get all the information you need.",
+        "Hi Tom, This is_________, How are you? I have some questions.",
+        "How long do I have to take care of your house? 5days? Okay.",
+        "What about your house key? I mean where are you going to put the key? Oh! in the mailbox. I got it!",
+        "How often should I water the plants on the balcony? Once a day? Okay. I’ll try my best.",
+        "By the way, when is recycling day? Wednesday? Okay, No problem.",
+        "Have a good trip. Bye.",
+        "친척집 도착했으나 있어야 할 열쇠가 없어서 집에 못 들어가는 상황, 전화해서 대안제시",
+        "2.I’m sorry, but there is a problem I need you to resolve. When you arrived at your relative’s house but the door is locked and the key is not where it is supposed to be. Call your relative’s hotel and leave a message and give two to three questions to solve the problem.",
+        "Hi Tom, This is Cathy, How is your trip?",
+        "By the way, I am at your front door. but I can’t get in. I can’t find the key in the mail box. Do you have a spare key somewhere?",
+        "By the way, I talked to the management office. They can open the door with a master key, but they need your permission,",
+        "so can you please call them?",
+        "I’ll wait at a coffee shop nearby because it’s too hot outside. When you get this message, please call me back right away.",
+        "Thanks!",
+        "Please call me back as soon as you get this message.",
+        "가족이나 친구와 한 약속을 못 지킨 경험",
+        "3: That’s the end of the situation. Have you ever been in a situation where you agreed to do something for your friends or family members but couldn’t do it? Give me all the details about what you agreed to do, what happened, and how the situation was resolved. (여행R-공연-파티-호텔-친구 가족 초대-기술 동일이용하기)",
+        "Yes, I was supposed to go to the concert with my friend last Saturday.",
+        "But all of a sudden, my mom was too sick and had a high fever last Friday morning. So she took a day off from her work and took a rest at home having some hot tea. I thought she would be ok. But she couldn’t get out of bed. So, I had to prepare food and clean the house for her.",
+        "Then, I called my friend in the morning and I told him about my mom’s condition. I was really sorry, but he told me that he could go to the concert with his wife.",
+        "Good news was that he enjoyed the concert and his wife loved the concert as well and they had a fancy dinner. I was happy to hear that and I could rest easy at last."
+      ]
+    }
+  ],
+  "questionCards": [
+    {
+      "id": "119f2ed5-d86b-4ed3-a1ad-beef51210c7e",
+      "fileId": "food음식-0",
+      "q": "건강 식품 종류와 건강에 좋은 이유\n\nMany people try to eat healthy these days.\n\nWhat kinds of foods are healthy and why are they healthy for us?\n\n1. 우리나라 대표 음식 묘사\n\nWhat are some of the typical foods in your country? What dishes are popular?",
+      "answerHints": [
+        "소고기 Ok. first, Korean beef is a typical and healthy food.",
+        "단백질/면역력 It is high in protein, so it boosts immune system and strength.",
+        "김치-영양소 next, kimchi is iconic food and well, it is also good for health because Kimchi is rich in vitamins and fiber."
+      ]
+    },
+    {
+      "id": "189b6a61-3bad-48b5-9ffc-4b6b268cc1a9",
+      "fileId": "food음식-0",
+      "q": "How do you shop for healthy food?\n\nWhat kinds of things do you have to do to cook healthy food?",
+      "answerHints": [
+        "집에서 먹기 까다로움 Well~ Beef is good for your health. We can buy meat in the supermarket. But it tastes better when you grill it and it's troublesome to eat at home. So, usually, people in Korea enjoy meat at restaurants"
+      ]
+    },
+    {
+      "id": "ac7fe25f-f63b-429f-882c-facd03a6b6e1",
+      "fileId": "food음식-0",
+      "q": "소/돼지 숯불구이 There are lots of barbeque restaurants for celebrations or parties such as birthday parties, staff dinners. For your information, most Korean BBQ places use charcoal grills. I guess that’s pretty unique, right?",
+      "answerHints": [
+        "Well~ They serve many kinds of meat like pork and beef.",
+        "숯불구이 방식 Most Korean barbecue restaurants, you grill the meat yourself. There is a grill right in the middle. After you order your meat, they will turn on the fire, place the meat on it.",
+        "반찬 Moreover, they serve various side dishes that include green onion salad, soup and kimchi something like that."
+      ]
+    },
+    {
+      "id": "278256f6-4b31-4369-acae-d99c361bad73",
+      "fileId": "food음식-0",
+      "q": "소고기 대체 삼겹살 You know what? Korean beef is really tender and delicious, but it’s super expensive.",
+      "answerHints": [
+        "So usually, I eat samgyeopsal, which is pork belly. It’s way cheaper, and when it’s well-cooked, it’s crispy on the outside and juicy inside. So good!"
+      ]
+    },
+    {
+      "id": "49e61bfa-0005-4975-9308-c0c69ae1fce7",
+      "fileId": "food음식-0",
+      "q": "건강한 음식을 먹게 된 계기=\n\nTell me how you found out about eating healthy. Did your family eat healthy when you were growing up? Did your friend become healthier by eating healthy food? Describe in detail how you started to eat healthy.",
+      "answerHints": [
+        "Last year, I found that I had to make some changes after gaining some weight because I was lazy over the past few years.",
+        "You know what? I was actually eating a lot of late-night snacks.",
+        "Then, one day, I looked at myself in the mirror and thought, \"Oh my god, who are you? A big hamster?\" I got a beer belly (똥배) and a muffin top."
+      ]
+    },
+    {
+      "id": "46a4444d-f660-4045-b956-d7f1b8b3e0b7",
+      "fileId": "food음식-0",
+      "q": "You know what? I was actually eating a lot of late-night snacks.",
+      "answerHints": [
+        "Then, one day, I looked at myself in the mirror and thought, \"Oh my god, who are you? A big hamster?\" I got a beer belly (똥배) and a muffin top.",
+        "That’s when I decided it was time to start jogging in the park and eating clean foods.",
+        "Back then, I thought jogging was boring. and I missed my comfort foods."
+      ]
+    },
+    {
+      "id": "14815355-7c04-41c8-8624-62cc10ffc797",
+      "fileId": "food음식-0",
+      "q": "Then, one day, I looked at myself in the mirror and thought, \"Oh my god, who are you? A big hamster?\" I got a beer belly (똥배) and a muffin top.",
+      "answerHints": [
+        "That’s when I decided it was time to start jogging in the park and eating clean foods.",
+        "Back then, I thought jogging was boring. and I missed my comfort foods.",
+        "However, I soon discovered that they had a lot of benefits. First, I felt alive and energized."
+      ]
+    },
+    {
+      "id": "41d50647-dc4e-4648-84dc-b1f345a26134",
+      "fileId": "food음식-0",
+      "q": "When was the last time you had some healthy food? who was it with and how did you feel? What was special about that experience?",
+      "answerHints": [
+        "집들이 A few months ago, I moved to a new place, and I wanted to have a housewarming party.",
+        "Since my parents didn’t want to eat out, they came over to my new place instead.",
+        "But I didn't want to prepare lots of food because my wife and I are a dual-income couple, we were tired and we didn’t want to lift a finger."
+      ]
+    },
+    {
+      "id": "45345d2f-b165-4d4d-a9d5-b3763399feaa",
+      "fileId": "가족친구-1",
+      "q": "Can you describe friends or family members you see often. Who is he or she? What is she or he like?\n\n1: Describe a family or a friend you have. What is he or she like? What is special about that person? Give me all the details about that person.",
+      "answerHints": [
+        "와이프 \"I’d love to tell you about my wife. She is, without a doubt, the most important person in my life.\""
+      ]
+    },
+    {
+      "id": "c6ba3851-5517-4395-b9bf-5a9d19ebcf72",
+      "fileId": "가족친구-1",
+      "q": "젊어보인다 You know what? She is unbelievably youthful. She’s actually in her early 40s now, but honestly, people often mistake her for being in her late 20s. She just has this natural glow and looks much younger than her actual age.",
+      "answerHints": [
+        "운동 열심히 한다. The secret is, she is a total fitness enthusiast. She works out every single day, no matter how busy she is. Whether it’s Pilates or jogging in the park, she never skips a workout. I’m always amazed by her discipline. It's really inspiring to see her staying so active.",
+        "식단 조절을 한다. When it comes to her lifestyle, she is also very mindful of what she eats. She tries to cut down on oily food and sugar, and she focuses on a balanced diet with lots of protein and veggies. She’s very strict about not eating late at night, which I find really hard to do myself!",
+        "성격 정신력 But honestly, what I like most is her personality. She is always positive. Even when things are hard, she always smiles. And you know what? Taking care of me and our kids all day is probably her hardest work! (Laughs) She is mentally very strong and she always takes good care of our family."
+      ]
+    },
+    {
+      "id": "5b29e1ad-afc6-42b6-8a03-33a68eb26270",
+      "fileId": "가족친구-1",
+      "q": "성격 정신력 But honestly, what I like most is her personality. She is always positive. Even when things are hard, she always smiles. And you know what? Taking care of me and our kids all day is probably her hardest work! (Laughs) She is mentally very strong and she always takes good care of our family.",
+      "answerHints": [
+        "클로징 멘트 So yeah, I feel so lucky to have such a beautiful and energetic wife. I’m really proud of her.",
+        "가족 친구와 있을 때 주로 하는 일(현재시제)",
+        "when you get together with your friends or family, what kinds of things do you like to do together and why?"
+      ]
+    },
+    {
+      "id": "04a069d1-4262-40af-8c7f-1e35665ab555",
+      "fileId": "가족친구-1",
+      "q": "when you get together with your friends or family, what kinds of things do you like to do together and why?",
+      "answerHints": [
+        "주중 ( Weekdays): Actually, I don't have enough time from Monday to Friday because I usually work overtime until late at night. So, I just do the laundry or fold the clothes after work.",
+        "주말 ( Weekends) - 대청소/아들 방 정리: On weekends, we do a deep clean. I also clean up my son's room. There are a lot of toys and books in his room.",
+        "내가 하는 일 ( What I Do): I am good at fixing machines, so I repair anything that breaks in the house. I'm also responsible for taking out the food waste. As you know, it’s smelly and a hassle, but I have to do it because my wife doesn’t want to deal with anything smelly."
+      ]
+    },
+    {
+      "id": "2ddec99b-7959-4708-bdf6-a1c053b40003",
+      "fileId": "가족친구-1",
+      "q": "*Now, tell me about the things that you do at home. What are some routines you engage in? what do you do during weekdays and weekends?",
+      "answerHints": [
+        "*Tell me what you do to keep your house clean and comfortable. What kind of housework do you do around your home?"
+      ]
+    },
+    {
+      "id": "a46f70c3-930d-4aeb-bc80-a920194d480a",
+      "fileId": "가족친구-1",
+      "q": "Talk about a last time when you visited a friend or a family member. What did you do when you visit them? What was memorable about that visit? Tell me everything from beginning to end.\n\n가족/친구같이 보낸 휴일 경험\n\n3. Could you tell me about a special event or a holiday you celebrated with your family or friends? Tell me about that event or the holiday from beginning to the end.\n\n(명절 스크립트 이용)\n\n아무데도 안감 Actually, I did not visit my friend or my parents.\n\n이유 Traditionally, Most Korean people visit their parents on holidays such …",
+      "answerHints": [
+        "In the end, my family decided to stay home.",
+        "It was the first time I stayed home during 추석. The best part was we didn't have to deal with any annoying traffic jams.",
+        "늦잠 So I got up late, it was wonderful to get more sleep than usual."
+      ]
+    },
+    {
+      "id": "389b7c3a-c70d-4e8c-b488-208c3b96b79e",
+      "fileId": "레스토랑-r-2",
+      "q": "Hi, Tom. How are you? I’m calling to ask about your uncle’s new restaurant.",
+      "answerHints": [
+        "특별 메뉴? What are the specials? Ah~ chicken sandwiches and home-made yogurt?",
+        "sounds delicious! I am hungry for chicken sandwiches.",
+        "앱에 있니? Can I spot the restaurant on delivery apps? I want to check the menus with prices."
+      ]
+    },
+    {
+      "id": "ccf6bb47-49c3-4deb-b7de-f530e80e1278",
+      "fileId": "레스토랑-r-2",
+      "q": "특별 메뉴? What are the specials? Ah~ chicken sandwiches and home-made yogurt?",
+      "answerHints": [
+        "sounds delicious! I am hungry for chicken sandwiches.",
+        "앱에 있니? Can I spot the restaurant on delivery apps? I want to check the menus with prices.",
+        "배달비? Is delivery free? or is there a minimum order amount? over 20,000 won for free delivery~ got it"
+      ]
+    },
+    {
+      "id": "c022a44a-8987-4fbb-b3bd-2a2a3bfa994b",
+      "fileId": "레스토랑-r-2",
+      "q": "앱에 있니? Can I spot the restaurant on delivery apps? I want to check the menus with prices.",
+      "answerHints": [
+        "배달비? Is delivery free? or is there a minimum order amount? over 20,000 won for free delivery~ got it",
+        "직접 방문 시 주차비? If I visit there in person, is parking free? free for the first 2 hours. Ok.",
+        "잘못 배달된 점심 도시락 음식점에 전화해서 문제 해결 (카페)"
+      ]
+    },
+    {
+      "id": "bf8fcefa-2d73-4cca-a724-f23e4252bccb",
+      "fileId": "레스토랑-r-2",
+      "q": "배달비? Is delivery free? or is there a minimum order amount? over 20,000 won for free delivery~ got it",
+      "answerHints": [
+        "직접 방문 시 주차비? If I visit there in person, is parking free? free for the first 2 hours. Ok.",
+        "잘못 배달된 점심 도시락 음식점에 전화해서 문제 해결 (카페)",
+        "2. I’m sorry but there is a problem. You ordered food to your workplace for a lunch meeting. When you opened the package, you realize that the delivery person has brought you someone else’s order."
+      ]
+    },
+    {
+      "id": "b7d1cab7-0b51-4e7e-8636-5ad8a9ce6e8d",
+      "fileId": "레스토랑-r-2",
+      "q": "직접 방문 시 주차비? If I visit there in person, is parking free? free for the first 2 hours. Ok.",
+      "answerHints": [
+        "잘못 배달된 점심 도시락 음식점에 전화해서 문제 해결 (카페)",
+        "2. I’m sorry but there is a problem. You ordered food to your workplace for a lunch meeting. When you opened the package, you realize that the delivery person has brought you someone else’s order.",
+        "Call the store. talk to the manager and offer two or three solutions."
+      ]
+    },
+    {
+      "id": "139a7d7e-7695-4689-a392-1166070f28a3",
+      "fileId": "레스토랑-r-2",
+      "q": "착오 I'm pretty sure there was a mix-up with the order. What are you going to do? (=Could you check on that?) or could I get a refund? Ah~ you’ll send the right order again~ I see!",
+      "answerHints": [
+        "Ok! How long do I have to wait to get correct order? 10 minutes? well….ok.",
+        "we have 10 minutes left for the lunch meeting.",
+        "So please deliver the food quickly."
+      ]
+    },
+    {
+      "id": "4c110737-34fc-48f3-b471-1a09b65fc2a1",
+      "fileId": "레스토랑-r-2",
+      "q": "Ok! How long do I have to wait to get correct order? 10 minutes? well….ok.",
+      "answerHints": [
+        "we have 10 minutes left for the lunch meeting.",
+        "So please deliver the food quickly.",
+        "the contents aren't what I ordered."
+      ]
+    },
+    {
+      "id": "468e6818-3195-4b54-ad80-c0734cf46b04",
+      "fileId": "레스토랑-r-2",
+      "q": "Tell me about a time when you went out for a special meal with your family, friends or co-workers. What was the occasion?",
+      "answerHints": [
+        "Where did you go and what happened during the meal?(레스토랑 테이크아웃/배달 음식점을 통한 특별한 행사 준비 경험 master key answer)=가족",
+        "집들이 A few months ago, I moved to a new place, and I wanted to have a housewarming party.",
+        "Since my parents didn’t want to eat out, they came over to my new place instead."
+      ]
+    },
+    {
+      "id": "9edf853d-d27b-486a-9b51-2e0fed02e2bb",
+      "fileId": "레스토랑-r-2",
+      "q": "Where did you go and what happened during the meal?(레스토랑 테이크아웃/배달 음식점을 통한 특별한 행사 준비 경험 master key answer)=가족",
+      "answerHints": [
+        "집들이 A few months ago, I moved to a new place, and I wanted to have a housewarming party.",
+        "Since my parents didn’t want to eat out, they came over to my new place instead.",
+        "But I didn't want to prepare lots of food because my wife and I are a dual-income couple, we were tired and we didn’t want to lift a finger."
+      ]
+    },
+    {
+      "id": "0690cc1c-7ab7-44a1-8e20-88cb20f1c286",
+      "fileId": "레스토랑-3",
+      "q": "Tell me about the restaurants in your country. What is a typical restaurant like?",
+      "answerHints": [
+        "Tell me about a restaurant near where you live. What kind of food does it serve? How are the prices? How often go there? Give me as much detail as you can about one of your favorite local places to eat.",
+        "Tip: 본인이 사는 지역에서 진행되는 모임을 묘사",
+        "Tell me about some of the gatherings or celebrations that happen at where you live."
+      ]
+    },
+    {
+      "id": "45ff3da9-124a-4551-a739-6046d6b278bb",
+      "fileId": "레스토랑-3",
+      "q": "Tell me about a restaurant near where you live. What kind of food does it serve? How are the prices? How often go there? Give me as much detail as you can about one of your favorite local places to eat.",
+      "answerHints": [
+        "Tip: 본인이 사는 지역에서 진행되는 모임을 묘사",
+        "Tell me about some of the gatherings or celebrations that happen at where you live."
+      ]
+    },
+    {
+      "id": "149f0eed-0d9b-4e80-a419-bf474c50fb0e",
+      "fileId": "레스토랑-3",
+      "q": "Tell me about some of the gatherings or celebrations that happen at where you live.",
+      "answerHints": [
+        "지역 사람들이 주로 가는 셀레브레이션 또는 파티 장소 묘사 where do people usually have celebrations or parties in the area where you live or work? Is it at someone’s home, or a park, or a somewhere else? Tell me everything about the place in as much detail as you can."
+      ]
+    },
+    {
+      "id": "701d1905-72ba-4a47-b12b-c8cafffc4ab9",
+      "fileId": "레스토랑-3",
+      "q": "지역 사람들이 주로 가는 셀레브레이션 또는 파티 장소 묘사 where do people usually have celebrations or parties in the area where you live or work? Is it at someone’s home, or a park, or a somewhere else? Tell me everything about the place in as much detail as you can.",
+      "answerHints": [
+        "소/돼지 숯불구이 There are lots of barbeque restaurants for celebrations or parties such as birthday parties and staff dinners. For your information, most Korean BBQ places use charcoal grills. It’s unique for you, right?"
+      ]
+    },
+    {
+      "id": "344d5c9d-18e0-4d40-8e0b-56d9474f6b1e",
+      "fileId": "레스토랑-3",
+      "q": "소/돼지 숯불구이 There are lots of barbeque restaurants for celebrations or parties such as birthday parties and staff dinners. For your information, most Korean BBQ places use charcoal grills. It’s unique for you, right?",
+      "answerHints": [
+        "Well~ They serve many kinds of meat like pork and beef.",
+        "숯불구이 방식 Most Korean barbecue restaurants, Customers grill their own meat. There is a grill right in the middle. After you order your meat, they will turn on the fire and place the meat on it.",
+        "반찬 Moreover, they serve various side dishes such as green onion salad, soup and kimchi something like that."
+      ]
+    },
+    {
+      "id": "a18a13a3-649f-42b1-9e22-7f7246b15f38",
+      "fileId": "레스토랑-3",
+      "q": "소고기 대체 삼겹살 You know what? Korean beef is really tender but expensive. So I usually have Korean BBQ pork belly.(삼겹살이 훨씬 싸다.well-cooked 삼겹살 is crispy and juicy )",
+      "answerHints": [
+        "After all that greasy meat, I wash it down with some cold naengmyeon.\"(기름진 고기 먹고 냉면으로 개운하게 마무리해.)",
+        "I finish off with naengmyeon.",
+        "Payday is my official beef day"
+      ]
+    },
+    {
+      "id": "a04ba602-cdd3-40fc-8227-acc2fa1a7eb7",
+      "fileId": "레스토랑-3",
+      "q": "2.Tell me about what you usually do when you eat at a restaurant. What do you do first, second, etc.?",
+      "answerHints": [
+        "When I go to a restaurant, here's what I typically do!",
+        "분위기 둘러봄 First, once I step into the restaurant, I usually take a moment to check out the interior and mood before finding a seat.",
+        "메뉴판 체크 Then, I check the menu. You know what? Nowadays, many places don't even have paper menus anymore."
+      ]
+    },
+    {
+      "id": "ce525f72-1aac-403a-abdc-7ce350248113",
+      "fileId": "레스토랑-3",
+      "q": "When I go to a restaurant, here's what I typically do!",
+      "answerHints": [
+        "분위기 둘러봄 First, once I step into the restaurant, I usually take a moment to check out the interior and mood before finding a seat.",
+        "메뉴판 체크 Then, I check the menu. You know what? Nowadays, many places don't even have paper menus anymore.",
+        "Instead, they often have kiosks or tablet menus."
+      ]
+    },
+    {
+      "id": "7721bf1d-cdd0-4435-a865-b76e391015ca",
+      "fileId": "레스토랑-3",
+      "q": "메뉴판 체크 Then, I check the menu. You know what? Nowadays, many places don't even have paper menus anymore.",
+      "answerHints": [
+        "Instead, they often have kiosks or tablet menus.",
+        "So, I scroll to choose what I want to eat.",
+        "리뷰 체크 And if I'm not sure about what to order, I check out visitor reviews and photos but I don’t trust them100% because sometimes if you write a good review, you might even get free drinks or food, even if the taste isn’t that great."
+      ]
+    },
+    {
+      "id": "ae066dbe-9588-45af-8ff0-02ad5b6b60b4",
+      "fileId": "레스토랑-3",
+      "q": "3.Describe for me a restaurant you remember from your childhood. What was the restaurant like? Was it different from the restaurant you visit today?",
+      "answerHints": [
+        "3. Tell me about the last time you used a take-out or delivery food service. what did you eat? Where was it? What do you remember about that experience?"
+      ]
+    },
+    {
+      "id": "0af827c7-79bd-49bb-b5b3-01991fef72fc",
+      "fileId": "레스토랑-3",
+      "q": "3. Tell me about the last time you used a take-out or delivery food service. what did you eat? Where was it? What do you remember about that experience?",
+      "answerHints": [
+        "(=when was the last time you ate at a restaurant with an international menu?"
+      ]
+    },
+    {
+      "id": "f3508ee4-8d6a-4300-96bd-bc227250e8e6",
+      "fileId": "레스토랑-3",
+      "q": "(=when was the last time you ate at a restaurant with an international menu?",
+      "answerHints": [
+        "Where was it? Who were you with? What did you eat? Tell me entire story of that visit to that restaurant.)",
+        "=최근 외국 음식점 경험= = 테이크 아웃이나 배달 최근에 이용한 경험",
+        "Let me tell you about the time I had a hamburger when I was a kid."
+      ]
+    },
+    {
+      "id": "e16839c2-0f91-482a-a753-913245f2ba8e",
+      "fileId": "레스토랑-3",
+      "q": "Where was it? Who were you with? What did you eat? Tell me entire story of that visit to that restaurant.)",
+      "answerHints": [
+        "=최근 외국 음식점 경험= = 테이크 아웃이나 배달 최근에 이용한 경험",
+        "Let me tell you about the time I had a hamburger when I was a kid.",
+        "Well~ Franchise burger restaurants haven't changed a lot over the years."
+      ]
+    },
+    {
+      "id": "28b1b063-0918-46ab-9d87-9e017f460333",
+      "fileId": "레스토랑-3",
+      "q": "Then, my mom said” I am tired of cooking today. Let’s order food. What do you want to eat?”",
+      "answerHints": [
+        "I was like” Of course, HAMBURGER!”",
+        "So we ordered Burger king. She ordered a Whopper combo, and I got a Junior Whopper combo. But I got the wrong order!",
+        "Something was missing. There were no French fries."
+      ]
+    },
+    {
+      "id": "eac011e1-800a-44d3-af3e-7cf5d1049b0a",
+      "fileId": "아침점심저녁-4",
+      "q": "What do you eat on a regular day? Tell me everything that in detail.",
+      "answerHints": [
+        "건강: 바쁜 직장인들은 식사를 어떻게 하는지 설명 하세요.",
+        "How do busy working people usually get their meals on weekdays in Korea?",
+        "사내 식당 Many workplaces in Korea have onsite cafeterias right there in the workplace."
+      ]
+    },
+    {
+      "id": "acb693be-1f04-44cf-811a-b02b5e7c5cfd",
+      "fileId": "아침점심저녁-4",
+      "q": "How do busy working people usually get their meals on weekdays in Korea?",
+      "answerHints": [
+        "사내 식당 Many workplaces in Korea have onsite cafeterias right there in the workplace.",
+        "It's super convenient because you don't have to go outside to grab a bite.",
+        "아침 These days, many companies even provide breakfast for their employees. It’s usually something simple like sandwiches, cup noodles, boiled eggs, protein bars, or milk."
+      ]
+    },
+    {
+      "id": "35da0b8f-6fbc-4f2b-b068-76ce5a322a22",
+      "fileId": "차렌트-5",
+      "q": "I'm looking to rent a car for a week. Can you tell me what options are available?",
+      "answerHints": [
+        "I’d like a mid-sized sedan with good gas mileage. What do you have?",
+        "Oh, that sounds good. How much is it per day?",
+        "$90? Hmm… that’s over my budget. Can you recommend something cheaper?"
+      ]
+    },
+    {
+      "id": "9bbaa3e2-9ef2-469a-aef9-f5086998afc7",
+      "fileId": "차렌트-5",
+      "q": "I’d like a mid-sized sedan with good gas mileage. What do you have?",
+      "answerHints": [
+        "Oh, that sounds good. How much is it per day?",
+        "$90? Hmm… that’s over my budget. Can you recommend something cheaper?",
+        "A Toyota Camry? That sounds great. Can you tell me more about it?"
+      ]
+    },
+    {
+      "id": "0452bf38-4daa-43e1-8dd7-46f69a59817a",
+      "fileId": "차렌트-5",
+      "q": "Oh, that sounds good. How much is it per day?",
+      "answerHints": [
+        "$90? Hmm… that’s over my budget. Can you recommend something cheaper?",
+        "A Toyota Camry? That sounds great. Can you tell me more about it?",
+        "Got it. Thanks for the info!"
+      ]
+    },
+    {
+      "id": "3e279618-8fa3-4033-8336-c6f968ec0bea",
+      "fileId": "차렌트-5",
+      "q": "$90? Hmm… that’s over my budget. Can you recommend something cheaper?",
+      "answerHints": [
+        "A Toyota Camry? That sounds great. Can you tell me more about it?",
+        "Got it. Thanks for the info!",
+        "One more thing—do I need to refuel the car before returning it?"
+      ]
+    },
+    {
+      "id": "80ef0b31-08e8-450d-8a2e-38cbe366951b",
+      "fileId": "차렌트-5",
+      "q": "A Toyota Camry? That sounds great. Can you tell me more about it?",
+      "answerHints": [
+        "Got it. Thanks for the info!",
+        "One more thing—do I need to refuel the car before returning it?",
+        "Okay, thanks for your help!"
+      ]
+    },
+    {
+      "id": "23d20708-8cd1-4244-945c-86b22cbf6b27",
+      "fileId": "차렌트-5",
+      "q": "One more thing—do I need to refuel the car before returning it?",
+      "answerHints": [
+        "Okay, thanks for your help!",
+        "Do I need to pay for insurance on the car?",
+        "And which car gets the best gas mileage for city driving?"
+      ]
+    },
+    {
+      "id": "ae6dc3a8-7db2-4300-8681-6b0a6775df13",
+      "fileId": "차렌트-5",
+      "q": "Do I need to pay for insurance on the car?",
+      "answerHints": [
+        "And which car gets the best gas mileage for city driving?",
+        "렌터카 문제 있어서 회사에 전화해서 해결",
+        "2. I’m sorry, but there is a problem I need you to resolve. You have received the rental car, but there are many problems with it. Call the rental agency and explain the situation. Give two to three alternatives."
+      ]
+    },
+    {
+      "id": "0a26f76c-0016-4142-80bc-64b9147cc4d8",
+      "fileId": "차렌트-5",
+      "q": "And which car gets the best gas mileage for city driving?",
+      "answerHints": [
+        "렌터카 문제 있어서 회사에 전화해서 해결",
+        "2. I’m sorry, but there is a problem I need you to resolve. You have received the rental car, but there are many problems with it. Call the rental agency and explain the situation. Give two to three alternatives.",
+        "Hi there! is this SUPER MOTOR rental agency? Actually, I rented a car 10 minutes ago. My name is ________. Ok. You know ~ I've encountered several problems with the car. There's a strange noise coming from the engine, so I can’t start the engine. Well, I am in the middle of the road."
+      ]
+    },
+    {
+      "id": "7aeade8b-6f91-4d9f-81a4-23893b57edef",
+      "fileId": "차렌트-5",
+      "q": "Hi there! is this SUPER MOTOR rental agency? Actually, I rented a car 10 minutes ago. My name is ________. Ok. You know ~ I've encountered several problems with the car. There's a strange noise coming from the engine, so I can’t start the engine. Well, I am in the middle of the road.",
+      "answerHints": [
+        "From bad to worse, it is smelly. I rented a non-smoking car. But this car has a terrible smell. let me talk to the manager. Yes, I would like to have a replacement car. Is it possible? Good!",
+        "Can I get a replacement car? Ok. How long will it take?",
+        "50 minutes? That’s too long. I’ll call roadside assistance instead."
+      ]
+    },
+    {
+      "id": "3160b078-31e0-481d-9d3f-679b3f86acb5",
+      "fileId": "차렌트-5",
+      "q": "From bad to worse, it is smelly. I rented a non-smoking car. But this car has a terrible smell. let me talk to the manager. Yes, I would like to have a replacement car. Is it possible? Good!",
+      "answerHints": [
+        "Can I get a replacement car? Ok. How long will it take?",
+        "50 minutes? That’s too long. I’ll call roadside assistance instead.",
+        "원하는 차종이 없어서 전화해서 문제해결"
+      ]
+    },
+    {
+      "id": "9fc0057f-eda0-403a-abf9-45c70d45ade1",
+      "fileId": "차렌트-5",
+      "q": "Can I get a replacement car? Ok. How long will it take?",
+      "answerHints": [
+        "50 minutes? That’s too long. I’ll call roadside assistance instead.",
+        "원하는 차종이 없어서 전화해서 문제해결",
+        "2. I am sorry, but there is a problem. You want to rent a specific car, but you find out that none are available."
+      ]
+    },
+    {
+      "id": "34145e34-65f3-4733-a0b6-0dfc628f9665",
+      "fileId": "차렌트-5",
+      "q": "50 minutes? That’s too long. I’ll call roadside assistance instead.",
+      "answerHints": [
+        "원하는 차종이 없어서 전화해서 문제해결",
+        "2. I am sorry, but there is a problem. You want to rent a specific car, but you find out that none are available.",
+        "Call the manager and describe the situation."
+      ]
+    },
+    {
+      "id": "5ac0ef13-af64-43ba-9e78-d6fe17fcc514",
+      "fileId": "차렌트-5",
+      "q": "I really need an SUV because I have three kids. Do you have any available?",
+      "answerHints": [
+        "Oh… fully booked? That’s disappointing.",
+        "Can you recommend another option?",
+        "A Tesla Model S? Sounds interesting. What features does it have?"
+      ]
+    },
+    {
+      "id": "e2fb8e34-d208-4334-8ea9-ee053338bbc1",
+      "fileId": "차렌트-5",
+      "q": "Oh… fully booked? That’s disappointing.",
+      "answerHints": [
+        "Can you recommend another option?",
+        "A Tesla Model S? Sounds interesting. What features does it have?",
+        "A sunroof, navigation, and autopilot? That’s cool!"
+      ]
+    },
+    {
+      "id": "296a7136-b693-4b9d-8a55-88c827491e83",
+      "fileId": "차렌트-5",
+      "q": "Can you recommend another option?",
+      "answerHints": [
+        "A Tesla Model S? Sounds interesting. What features does it have?",
+        "A sunroof, navigation, and autopilot? That’s cool!",
+        "Is it within my budget?"
+      ]
+    },
+    {
+      "id": "95e9eaa3-9461-4040-bc47-1f3cf9fb8693",
+      "fileId": "차렌트-5",
+      "q": "A Tesla Model S? Sounds interesting. What features does it have?",
+      "answerHints": [
+        "A sunroof, navigation, and autopilot? That’s cool!",
+        "Is it within my budget?",
+        "Oh, there's a special EV promotion? That’s great!"
+      ]
+    },
+    {
+      "id": "30721b78-a0e5-43a3-a349-04786c06a17d",
+      "fileId": "차렌트-5",
+      "q": "A sunroof, navigation, and autopilot? That’s cool!",
+      "answerHints": [
+        "Is it within my budget?",
+        "Oh, there's a special EV promotion? That’s great!",
+        "I heard Jeju Island has lots of charging stations. That’s a big plus!"
+      ]
+    },
+    {
+      "id": "202e6ff5-a177-4693-a7c3-ab660a1944c5",
+      "fileId": "차렌트-5",
+      "q": "Is it within my budget?",
+      "answerHints": [
+        "Oh, there's a special EV promotion? That’s great!",
+        "I heard Jeju Island has lots of charging stations. That’s a big plus!",
+        "Okay, I’ll go with the Tesla. Thanks!"
+      ]
+    },
+    {
+      "id": "474288b8-3ee9-42ac-8416-7a0a9dc32f71",
+      "fileId": "차렌트-5",
+      "q": "Oh, there's a special EV promotion? That’s great!",
+      "answerHints": [
+        "I heard Jeju Island has lots of charging stations. That’s a big plus!",
+        "Okay, I’ll go with the Tesla. Thanks!",
+        "3. That’s the end of the situation. Have you ever rented a car from the rental car agency? Why did you rent the car? When and where did you rent the car? Give me all the details about that experience."
+      ]
+    },
+    {
+      "id": "e7ffc11f-6a28-433a-93e5-e9d819896981",
+      "fileId": "차렌트-5",
+      "q": "3. That’s the end of the situation. Have you ever rented a car from the rental car agency? Why did you rent the car? When and where did you rent the car? Give me all the details about that experience.",
+      "answerHints": [
+        "Well… about two years ago, my family went to Jeju Island, so we rented an electric car. It was an amazing choice for some reasons.",
+        "Firstly, driving an electric car was incredibly easy. Jeju Island doesn’t have many complicated roads or heavy traffic, and most of the roads are flat.",
+        "Plus, electric car charging stations are everywhere, so we didn’t have to worry about running out of battery or finding a charging station. Since an electric car doesn’t have an engine, it’s also very quiet."
+      ]
+    },
+    {
+      "id": "ac32c418-8196-4561-bc7a-ac86a0b308fe",
+      "fileId": "친척집돌봐주기-2-r-6",
+      "q": "Hi Tom, This is_________, How are you? I have some questions.",
+      "answerHints": [
+        "How long do I have to take care of your house? 5days? Okay.",
+        "What about your house key? I mean where are you going to put the key? Oh! in the mailbox. I got it!",
+        "How often should I water the plants on the balcony? Once a day? Okay. I’ll try my best."
+      ]
+    },
+    {
+      "id": "8fcafc99-df16-4908-a76f-2da07a42d755",
+      "fileId": "친척집돌봐주기-2-r-6",
+      "q": "How long do I have to take care of your house? 5days? Okay.",
+      "answerHints": [
+        "What about your house key? I mean where are you going to put the key? Oh! in the mailbox. I got it!",
+        "How often should I water the plants on the balcony? Once a day? Okay. I’ll try my best.",
+        "By the way, when is recycling day? Wednesday? Okay, No problem."
+      ]
+    },
+    {
+      "id": "e82ca441-9cab-468f-9d30-3cfc8ecf48a2",
+      "fileId": "친척집돌봐주기-2-r-6",
+      "q": "What about your house key? I mean where are you going to put the key? Oh! in the mailbox. I got it!",
+      "answerHints": [
+        "How often should I water the plants on the balcony? Once a day? Okay. I’ll try my best.",
+        "By the way, when is recycling day? Wednesday? Okay, No problem.",
+        "Have a good trip. Bye."
+      ]
+    },
+    {
+      "id": "47829bca-63c9-48e5-a4bd-576572b0bda7",
+      "fileId": "친척집돌봐주기-2-r-6",
+      "q": "How often should I water the plants on the balcony? Once a day? Okay. I’ll try my best.",
+      "answerHints": [
+        "By the way, when is recycling day? Wednesday? Okay, No problem.",
+        "Have a good trip. Bye.",
+        "친척집 도착했으나 있어야 할 열쇠가 없어서 집에 못 들어가는 상황, 전화해서 대안제시"
+      ]
+    },
+    {
+      "id": "bfe0fc8f-c328-445e-a91d-406d43581a35",
+      "fileId": "친척집돌봐주기-2-r-6",
+      "q": "By the way, when is recycling day? Wednesday? Okay, No problem.",
+      "answerHints": [
+        "Have a good trip. Bye.",
+        "친척집 도착했으나 있어야 할 열쇠가 없어서 집에 못 들어가는 상황, 전화해서 대안제시",
+        "2.I’m sorry, but there is a problem I need you to resolve. When you arrived at your relative’s house but the door is locked and the key is not where it is supposed to be. Call your relative’s hotel and leave a message and give two to three questions to solve the problem."
+      ]
+    },
+    {
+      "id": "da2104e6-389f-4a46-ae6c-3997efbe8924",
+      "fileId": "친척집돌봐주기-2-r-6",
+      "q": "Hi Tom, This is Cathy, How is your trip?",
+      "answerHints": [
+        "By the way, I am at your front door. but I can’t get in. I can’t find the key in the mail box. Do you have a spare key somewhere?",
+        "By the way, I talked to the management office. They can open the door with a master key, but they need your permission,",
+        "so can you please call them?"
+      ]
+    },
+    {
+      "id": "cb7b20f8-4f75-4563-a2f1-c993b87976a1",
+      "fileId": "친척집돌봐주기-2-r-6",
+      "q": "By the way, I am at your front door. but I can’t get in. I can’t find the key in the mail box. Do you have a spare key somewhere?",
+      "answerHints": [
+        "By the way, I talked to the management office. They can open the door with a master key, but they need your permission,",
+        "so can you please call them?",
+        "I’ll wait at a coffee shop nearby because it’s too hot outside. When you get this message, please call me back right away."
+      ]
+    },
+    {
+      "id": "4f44d33a-01ba-4423-82db-84b682014f38",
+      "fileId": "친척집돌봐주기-2-r-6",
+      "q": "so can you please call them?",
+      "answerHints": [
+        "I’ll wait at a coffee shop nearby because it’s too hot outside. When you get this message, please call me back right away.",
+        "Please call me back as soon as you get this message.",
+        "가족이나 친구와 한 약속을 못 지킨 경험"
+      ]
+    },
+    {
+      "id": "92ae542c-3942-48ce-9681-48eb8c256164",
+      "fileId": "친척집돌봐주기-2-r-6",
+      "q": "3: That’s the end of the situation. Have you ever been in a situation where you agreed to do something for your friends or family members but couldn’t do it? Give me all the details about what you agreed to do, what happened, and how the situation was resolved. (여행R-공연-파티-호텔-친구 가족 초대-기술 동일이용하기)",
+      "answerHints": [
+        "Yes, I was supposed to go to the concert with my friend last Saturday.",
+        "But all of a sudden, my mom was too sick and had a high fever last Friday morning. So she took a day off from her work and took a rest at home having some hot tea. I thought she would be ok. But she couldn’t get out of bed. So, I had to prepare food and clean the house for her.",
+        "Then, I called my friend in the morning and I told him about my mom’s condition. I was really sorry, but he told me that he could go to the concert with his wife."
+      ]
+    }
+  ]
+}

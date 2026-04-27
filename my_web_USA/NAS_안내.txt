@@ -1,0 +1,25 @@
+=== my_web_USA (미국주식 Stage2) ===
+
+후보: usa_candidates.py
+export:  usa_export_core.run_usa_export
+벤치/지수: ^GSPC (S&P 500), RS·상단 배너(지수 2단계) 동일
+가점:  USA_BONUS_MARKET_CAP / USA_BONUS_OPERATING_MARGIN (기본 ON, 상한 USA_BONUS_MCAP_PTS=15)
+
+[로컬]
+  python run_local_export.py
+  → nas_web_payload/results_web.json, charts/, state/
+
+[로컬 미리보기]
+  python app.py
+  → http://0.0.0.0:8504  (charts/·results at 프로젝트 루트)
+
+[NAS 읽기전용]
+  app_nas_serve_usa.py  기본 포트 8504
+  sh -c "pip install -q 'flask>=3.0' && python3 /app/app_nas_serve_usa.py"
+
+[Docker]
+  docker build -f Dockerfile.nas -t usa-nas-web .
+  docker compose -f docker-compose.nas.host.yml up -d
+  브라우저: http://NAS:8504
+
+[검증] python verify_nas.py

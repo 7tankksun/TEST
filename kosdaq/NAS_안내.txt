@@ -1,0 +1,16 @@
+=== KOSDAQ 폴더 구조 ===
+
+kosdaq/
+  run_local_export.py   → nas_web_payload/ 생성
+  app_nas_serve_kosdaq.py
+  nas_web_payload/
+    results_web.json, charts/, state/
+
+[NAS Docker A] 권장: nas_web_payload → /app/payload
+  docker compose -f docker-compose.nas.yml up -d
+  http://NAS:8502
+
+[NAS Docker B] 전체 kosdaq → /app
+  docker compose -f docker-compose.nas.host.yml up -d
+
+[검증] python verify_nas.py

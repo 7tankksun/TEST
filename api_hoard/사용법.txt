@@ -1,0 +1,21 @@
+api_hoard — 나만의 공개 API 스냅샷
+================================
+1) 의존성: 표준 라이브러리만 사용(추가 pip 없음). 선택: python-dotenv가 있으면 .env 자동 로드.
+2) 실행: api_hoard 폴더에서
+     py -3 verify_and_store.py
+2a) 보려면(가장 쉬움):
+     open_data_folder.cmd 더블클릭
+     → catalog_table.html(브라우저 표) + last_ok + manifest 가 열립니다.
+2b) “내가 쓸 API만 표로”
+     data/catalog_table.html … id·키 필요 여부·URL·마지막 verify 결과·캐시 링크.
+     verify 끝날 때마다 자동 갱신. 단독: py -3 render_catalog_table.py
+3) 결과:
+   - data/catalog_table.html  … 위 표(사람/AI가 id 공유할 때 이 파일만 보면 됨)
+   - data/last_ok/*.json   … 마지막으로 성공한 응답(JSON + 메타)
+   - data/manifest.json    … 이번 실행 요약(성공/실패/스킵)
+4) FRED 등 키가 필요한 항목: env.example → .env 로 복사 후 FRED_API_KEY 입력.
+5) 항목 추가: catalog.json 의 "apis" 배열에 id, url, active, notes 를 넣고 다시 실행.
+6) AI가 준 URL이 믿을 수 없을 때: 여기에 한 번 넣고 verify_and_store로 돌려 본 뒤, 성공한 것만 active=true 로 유지.
+7) catalog v2: 통계·소비(거시)·무역·원자재(유/금/구리)·EIA(키)·FRED(키) 등. “쇼핑몰 가격” 공개 API는 사실상 없어서 catalog에 비고만 있음( meta 행 e-commerce ).
+
+Streamlit 등: data/last_ok/*.json 파일을 읽어서 그리면 됨(네트워크 없이 오프라인 표시 가능).

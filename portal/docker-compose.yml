@@ -1,0 +1,25 @@
+# NAS에서 사용: 이 폴더를 /volume1/.../portal 등에 두고
+#   docker compose up -d
+# (Container Manager "프로젝트"에서도 같은 yml로 가능)
+#
+# .env 는 NAS에서만 채우거나, 아래 environment를 DSM에서 수정.
+services:
+  portal:
+    # A) pip 매번: image만 쓰고 아래 command 주석 해제
+    # B) 권장: build 한번 → 이후엔 pull 거의 없음
+    build: .
+    image: junna3d-portal:local
+    container_name: portal-1
+    restart: unless-stopped
+    ports:
+      - "8500:8500"
+    working_dir: /app
+    volumes:
+      # 호스트: Synology Drive 동기화된 portal 폴더 경로로 바꾸기
+      - .:/app
+    environment:
+      - PORT=8500
+      # - PORTAL_BASE_URL=https://junna3d.i234.me
+      # - OPIC_URL=https://opic.junna3d.i234.me
+    # Dockerfile CMD = gunicorn --reload
+    # requirements 바꾼 뒤만: docker compose build --no-cache

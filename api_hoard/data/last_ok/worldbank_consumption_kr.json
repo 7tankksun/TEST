@@ -1,0 +1,98 @@
+{
+  "api_id": "worldbank_consumption_kr",
+  "fetched_utc": "2026-04-26T10:55:10.777217Z",
+  "source_url": "https://api.worldbank.org/v2/country/KR/indicator/NE.CON.TOTL.CD?per_page=5&format=json",
+  "http_status": 200,
+  "response_json": [
+    {
+      "page": 1,
+      "pages": 14,
+      "per_page": 5,
+      "total": 66,
+      "sourceid": "2",
+      "lastupdated": "2026-04-08"
+    },
+    [
+      {
+        "indicator": {
+          "id": "NE.CON.TOTL.CD",
+          "value": "Final consumption expenditure (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2025",
+        "value": null,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      },
+      {
+        "indicator": {
+          "id": "NE.CON.TOTL.CD",
+          "value": "Final consumption expenditure (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2024",
+        "value": 1237210525350.69,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      },
+      {
+        "indicator": {
+          "id": "NE.CON.TOTL.CD",
+          "value": "Final consumption expenditure (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2023",
+        "value": 1249369802686.38,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      },
+      {
+        "indicator": {
+          "id": "NE.CON.TOTL.CD",
+          "value": "Final consumption expenditure (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2022",
+        "value": 1199634285788.13,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      },
+      {
+        "indicator": {
+          "id": "NE.CON.TOTL.CD",
+          "value": "Final consumption expenditure (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2021",
+        "value": 1245717367262.97,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      }
+    ]
+  ]
+}

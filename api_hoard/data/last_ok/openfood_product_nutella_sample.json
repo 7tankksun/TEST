@@ -1,0 +1,18 @@
+{
+  "api_id": "openfood_product_nutella_sample",
+  "fetched_utc": "2026-04-26T10:55:13.964905Z",
+  "source_url": "https://world.openfoodfacts.org/api/v2/product/3017620422003?fields=code,product_name,brands,image_front_small_url,quantity",
+  "http_status": 200,
+  "response_json": {
+    "code": "3017620422003",
+    "product": {
+      "brands": "Nutella",
+      "code": "3017620422003",
+      "image_front_small_url": "https://images.openfoodfacts.org/images/products/301/762/042/2003/front_en.820.200.jpg",
+      "product_name": "Nutella",
+      "quantity": ""
+    },
+    "status": 1,
+    "status_verbose": "product found"
+  }
+}

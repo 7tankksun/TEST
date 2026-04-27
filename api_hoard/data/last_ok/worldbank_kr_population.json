@@ -1,0 +1,98 @@
+{
+  "api_id": "worldbank_kr_population",
+  "fetched_utc": "2026-04-26T10:55:10.506641Z",
+  "source_url": "https://api.worldbank.org/v2/country/KR/indicator/SP.POP.TOTL?per_page=5&format=json",
+  "http_status": 200,
+  "response_json": [
+    {
+      "page": 1,
+      "pages": 14,
+      "per_page": 5,
+      "total": 66,
+      "sourceid": "2",
+      "lastupdated": "2026-04-08"
+    },
+    [
+      {
+        "indicator": {
+          "id": "SP.POP.TOTL",
+          "value": "Population, total"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2025",
+        "value": null,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      },
+      {
+        "indicator": {
+          "id": "SP.POP.TOTL",
+          "value": "Population, total"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2024",
+        "value": 51751065,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      },
+      {
+        "indicator": {
+          "id": "SP.POP.TOTL",
+          "value": "Population, total"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2023",
+        "value": 51712619,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      },
+      {
+        "indicator": {
+          "id": "SP.POP.TOTL",
+          "value": "Population, total"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2022",
+        "value": 51672569,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      },
+      {
+        "indicator": {
+          "id": "SP.POP.TOTL",
+          "value": "Population, total"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2021",
+        "value": 51769539,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      }
+    ]
+  ]
+}

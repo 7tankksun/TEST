@@ -1,0 +1,16 @@
+services:
+  kosdaq-nas:
+    build:
+      context: .
+      dockerfile: Dockerfile.nas
+    image: kosdaq-nas-web
+    container_name: kosdaq-nas
+    restart: unless-stopped
+    ports:
+      - "8502:8502"
+    environment:
+      PAYLOAD_DIR: /app
+      FLASK_HOST: "0.0.0.0"
+      FLASK_PORT: "8502"
+    volumes:
+      - .:/app:ro

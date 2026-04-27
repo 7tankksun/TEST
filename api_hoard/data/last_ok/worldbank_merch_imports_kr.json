@@ -1,0 +1,98 @@
+{
+  "api_id": "worldbank_merch_imports_kr",
+  "fetched_utc": "2026-04-26T10:55:11.738959Z",
+  "source_url": "https://api.worldbank.org/v2/country/KR/indicator/NE.IMP.GNFS.CD?per_page=5&format=json",
+  "http_status": 200,
+  "response_json": [
+    {
+      "page": 1,
+      "pages": 14,
+      "per_page": 5,
+      "total": 66,
+      "sourceid": "2",
+      "lastupdated": "2026-04-08"
+    },
+    [
+      {
+        "indicator": {
+          "id": "NE.IMP.GNFS.CD",
+          "value": "Imports of goods and services (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2025",
+        "value": null,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      },
+      {
+        "indicator": {
+          "id": "NE.IMP.GNFS.CD",
+          "value": "Imports of goods and services (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2024",
+        "value": 755486201521.958,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      },
+      {
+        "indicator": {
+          "id": "NE.IMP.GNFS.CD",
+          "value": "Imports of goods and services (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2023",
+        "value": 755197457229.567,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      },
+      {
+        "indicator": {
+          "id": "NE.IMP.GNFS.CD",
+          "value": "Imports of goods and services (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2022",
+        "value": 814936711590.894,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      },
+      {
+        "indicator": {
+          "id": "NE.IMP.GNFS.CD",
+          "value": "Imports of goods and services (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2021",
+        "value": 698601348291.191,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 0
+      }
+    ]
+  ]
+}

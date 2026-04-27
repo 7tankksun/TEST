@@ -1,0 +1,18 @@
+#  docker compose -f docker-compose.nas.yml up -d
+#  mount: my_web_USA/nas_web_payload  →  /app/payload
+services:
+  usa-nas:
+    build:
+      context: .
+      dockerfile: Dockerfile.nas
+    image: usa-nas-web
+    container_name: usa-nas
+    restart: unless-stopped
+    ports:
+      - "8504:8504"
+    environment:
+      PAYLOAD_DIR: /app/payload
+      FLASK_HOST: "0.0.0.0"
+      FLASK_PORT: "8504"
+    volumes:
+      - ./nas_web_payload:/app/payload:ro

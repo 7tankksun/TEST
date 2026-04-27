@@ -1,0 +1,20 @@
+# kospi 폴더에서: docker compose -f docker-compose.nas.yml up -d
+#
+# [Synology] 코드 볼륨: .../local/kospi 또는 .../kospi → /app,
+#   결과: .../kospi/nas_web_payload → /app/payload
+services:
+  kospi-nas:
+    build:
+      context: .
+      dockerfile: Dockerfile.nas
+    image: kospi-nas-web
+    container_name: kospi-nas
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      PAYLOAD_DIR: /app/payload
+      FLASK_HOST: "0.0.0.0"
+      FLASK_PORT: "8501"
+    volumes:
+      - ./nas_web_payload:/app/payload:ro

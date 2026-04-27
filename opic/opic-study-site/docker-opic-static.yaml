@@ -1,0 +1,15 @@
+# OPIC 정적 사이트만 — python 이미지 쓰지 않음
+# NAS에서 이 파일이 있는 폴더( public 포함 )에서:
+#   docker compose -f docker-opic-static.yaml up -d
+#
+# public/ 아래: index.html, app.js, styles.css, data/materials.json
+services:
+  opic-web:
+    image: nginx:alpine
+    container_name: opic-static
+    restart: unless-stopped
+    ports:
+      - "8508:80"
+    volumes:
+      # 이 compose 파일 옆에 public 폴더가 있다고 가정
+      - ./public:/usr/share/nginx/html:ro

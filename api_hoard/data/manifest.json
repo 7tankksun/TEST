@@ -1,0 +1,149 @@
+{
+  "run_utc": "2026-04-26T10:55:13.968223Z",
+  "results": [
+    {
+      "id": "frankfurter_usd_krw",
+      "ok": true,
+      "ms": 303.7,
+      "bytes": 71,
+      "file": "data/last_ok/frankfurter_usd_krw.json"
+    },
+    {
+      "id": "open_er_api_usd_base",
+      "ok": true,
+      "ms": 101.9,
+      "bytes": 2967,
+      "file": "data/last_ok/open_er_api_usd_base.json"
+    },
+    {
+      "id": "worldbank_kr_gdp_current_usd",
+      "ok": true,
+      "ms": 303.0,
+      "bytes": 1132,
+      "file": "data/last_ok/worldbank_kr_gdp_current_usd.json"
+    },
+    {
+      "id": "worldbank_kr_cpi_inflation_annual",
+      "ok": true,
+      "ms": 460.4,
+      "bytes": 1927,
+      "file": "data/last_ok/worldbank_kr_cpi_inflation_annual.json"
+    },
+    {
+      "id": "worldbank_kr_population",
+      "ok": true,
+      "ms": 260.6,
+      "bytes": 1087,
+      "file": "data/last_ok/worldbank_kr_population.json"
+    },
+    {
+      "id": "worldbank_consumption_kr",
+      "ok": true,
+      "ms": 268.3,
+      "bytes": 1264,
+      "file": "data/last_ok/worldbank_consumption_kr.json"
+    },
+    {
+      "id": "worldbank_gdp_per_capita_kr",
+      "ok": true,
+      "ms": 336.3,
+      "bytes": 1187,
+      "file": "data/last_ok/worldbank_gdp_per_capita_kr.json"
+    },
+    {
+      "id": "worldbank_merch_exports_kr",
+      "ok": true,
+      "ms": 299.7,
+      "bytes": 1263,
+      "file": "data/last_ok/worldbank_merch_exports_kr.json"
+    },
+    {
+      "id": "worldbank_merch_imports_kr",
+      "ok": true,
+      "ms": 321.5,
+      "bytes": 1264,
+      "file": "data/last_ok/worldbank_merch_imports_kr.json"
+    },
+    {
+      "id": "census2020_pl_state_pops",
+      "ok": true,
+      "ms": 1052.7,
+      "bytes": 1576,
+      "file": "data/last_ok/census2020_pl_state_pops.json"
+    },
+    {
+      "id": "coingecko_btc_eth_usd",
+      "ok": true,
+      "ms": 280.0,
+      "bytes": 124,
+      "file": "data/last_ok/coingecko_btc_eth_usd.json"
+    },
+    {
+      "id": "openfood_product_nutella_sample",
+      "ok": true,
+      "ms": 889.9,
+      "bytes": 274,
+      "file": "data/last_ok/openfood_product_nutella_sample.json"
+    },
+    {
+      "id": "fred_series_DFF",
+      "ok": null,
+      "skipped": "no_api_key",
+      "env": "FRED_API_KEY"
+    },
+    {
+      "id": "fred_dcoilwti",
+      "ok": null,
+      "skipped": "no_api_key",
+      "env": "FRED_API_KEY"
+    },
+    {
+      "id": "fred_cpius",
+      "ok": null,
+      "skipped": "no_api_key",
+      "env": "FRED_API_KEY"
+    },
+    {
+      "id": "fred_retail_us",
+      "ok": null,
+      "skipped": "no_api_key",
+      "env": "FRED_API_KEY"
+    },
+    {
+      "id": "fred_umich_sentiment",
+      "ok": null,
+      "skipped": "no_api_key",
+      "env": "FRED_API_KEY"
+    },
+    {
+      "id": "fred_gold_london",
+      "ok": null,
+      "skipped": "no_api_key",
+      "env": "FRED_API_KEY"
+    },
+    {
+      "id": "fred_copper",
+      "ok": null,
+      "skipped": "no_api_key",
+      "env": "FRED_API_KEY"
+    },
+    {
+      "id": "eia_petrol_rwtc",
+      "ok": null,
+      "skipped": "no_api_key",
+      "env": "EIA_API_KEY"
+    },
+    {
+      "id": "bok_ecos_template",
+      "ok": null,
+      "skipped": "inactive",
+      "message": "https://ecos.bok.or.kr/ 서비스키 + 통계표/항목 ID URL 을 catalog에 url 필드로 직접 넣는 방식. 자동 fetch는 v1에선 템플릿 전용."
+    },
+    {
+      "id": "ecommerce_pricing_reality",
+      "ok": null,
+      "skipped": "inactive",
+      "message": "상용몰/마켓플랫폼 **개별 상품의 실시간 판매가**를 누구나 무료로 쓰는 **공인 REST**는 사실상 없습니다(이용약관·봇·가격리드 전문 API가 대부분). **대안**: (1) Open Food 등 **가공 식음료 메타/바코드** (2) statistics.retail(거시) — 공공·월드뱅크·FRED/ECOS (3) 직접 **제휴/크롤(합법/약관 필수)**. 이 행은 설명용이며 verify 하지 않음."
+    }
+  ]
+}

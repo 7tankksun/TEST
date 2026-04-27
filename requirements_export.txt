@@ -1,0 +1,5 @@
+# run_all_export.cmd (또는 run_all_exports.cmd) / run_local_export.py 공통 (KOSPI·KOSDAQ·USA)
+# 한 번만: py -3 -m pip install -r requirements_export.txt
+pandas>=2.0
+yfinance>=0.2.40
+matplotlib>=3.8

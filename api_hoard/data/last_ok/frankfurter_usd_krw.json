@@ -1,0 +1,14 @@
+{
+  "api_id": "frankfurter_usd_krw",
+  "fetched_utc": "2026-04-26T10:55:09.374345Z",
+  "source_url": "https://api.frankfurter.app/latest?from=USD&to=KRW",
+  "http_status": 200,
+  "response_json": {
+    "amount": 1.0,
+    "base": "USD",
+    "date": "2026-04-24",
+    "rates": {
+      "KRW": 1477.04
+    }
+  }
+}

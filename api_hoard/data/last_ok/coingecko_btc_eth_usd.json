@@ -1,0 +1,16 @@
+{
+  "api_id": "coingecko_btc_eth_usd",
+  "fetched_utc": "2026-04-26T10:55:13.074145Z",
+  "source_url": "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true",
+  "http_status": 200,
+  "response_json": {
+    "bitcoin": {
+      "usd": 77990,
+      "usd_24h_change": 0.2399265138965744
+    },
+    "ethereum": {
+      "usd": 2332.19,
+      "usd_24h_change": 0.5106464453465483
+    }
+  }
+}

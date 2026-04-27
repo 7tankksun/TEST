@@ -1,0 +1,146 @@
+{
+  "api_id": "worldbank_kr_cpi_inflation_annual",
+  "fetched_utc": "2026-04-26T10:55:10.244055Z",
+  "source_url": "https://api.worldbank.org/v2/country/KR/indicator/FP.CPI.TOTL.ZG?per_page=8&format=json",
+  "http_status": 200,
+  "response_json": [
+    {
+      "page": 1,
+      "pages": 9,
+      "per_page": 8,
+      "total": 66,
+      "sourceid": "2",
+      "lastupdated": "2026-04-08"
+    },
+    [
+      {
+        "indicator": {
+          "id": "FP.CPI.TOTL.ZG",
+          "value": "Inflation, consumer prices (annual %)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2025",
+        "value": null,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 1
+      },
+      {
+        "indicator": {
+          "id": "FP.CPI.TOTL.ZG",
+          "value": "Inflation, consumer prices (annual %)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2024",
+        "value": 2.32174328643542,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 1
+      },
+      {
+        "indicator": {
+          "id": "FP.CPI.TOTL.ZG",
+          "value": "Inflation, consumer prices (annual %)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2023",
+        "value": 3.5974562502901,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 1
+      },
+      {
+        "indicator": {
+          "id": "FP.CPI.TOTL.ZG",
+          "value": "Inflation, consumer prices (annual %)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2022",
+        "value": 5.08951365062842,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 1
+      },
+      {
+        "indicator": {
+          "id": "FP.CPI.TOTL.ZG",
+          "value": "Inflation, consumer prices (annual %)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2021",
+        "value": 2.49833333333339,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 1
+      },
+      {
+        "indicator": {
+          "id": "FP.CPI.TOTL.ZG",
+          "value": "Inflation, consumer prices (annual %)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2020",
+        "value": 0.537288023411737,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 1
+      },
+      {
+        "indicator": {
+          "id": "FP.CPI.TOTL.ZG",
+          "value": "Inflation, consumer prices (annual %)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2019",
+        "value": 0.383000303608136,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 1
+      },
+      {
+        "indicator": {
+          "id": "FP.CPI.TOTL.ZG",
+          "value": "Inflation, consumer prices (annual %)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2018",
+        "value": 1.47583935002645,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 1
+      }
+    ]
+  ]
+}

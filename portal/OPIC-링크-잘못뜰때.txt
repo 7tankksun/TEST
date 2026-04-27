@@ -1,0 +1,28 @@
+OPIC 클릭 시 junna3d.i234.me:8508 로 가는 경우
+===============================================
+
+[의도한 주소 (지금 portal.py 기본)]
+  https://opic.junna3d.i234.me/...
+
+[지금 처럼 이상하게 갈 때 흔한 원인 2가지]
+
+1) NAS Docker 컨테이너(포털)에 옛날에 넣은 환경 변수
+   OPIC_URL=https://junna3d.i234.me:8508
+   이게 있으면, 코드는 **OPIC_URL을 그대로** 씁니다. (서브도메인보다 이게 우선)
+   → 해결: Container Manager > portal 컨테이너 > 환경 변수에서
+      **OPIC_URL 항목을 삭제**하거나
+      **https://opic.junna3d.i234.me** 로 바꿉니다.
+      (비우는 것 = 기본값 = opic.도메인)
+
+2) NAS에 **옛날 portal.py**가 아직 올라가 있음
+   (예: 메인호스트+8508 를 쓰던 버전)
+   → 해결: PC에서 수정한 최신 portal.py 를 NAS 경로에 동기화한 뒤
+      컨테이너 **다시 시작** (gunicorn --reload 쓰면 파일만 맞으면 됨)
+
+[확인 방법]
+- 포털 컨테이너에 PORTAL_DEBUG_LINKS=1 넣고 저장 후 포털 열면
+  "OPIC link → ..." 가 텍스트로 보입니다. (운영 끝나면 0으로)
+
+[접속 거부 ERR_CONNECTION_REFUSED]
+- 링크가 opic. 으로 맞아도, OPIC(8508) 서버가 안 떠 있거나
+  역프록시/DNS가 opic 를 안 잡으면 그렇게 뜰 수 있음. (주소 vs 서버 기동 은 별개)

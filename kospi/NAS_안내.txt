@@ -1,0 +1,77 @@
+=== KOSPI 폴더 구조 (꼬임 방지) ===
+
+kospi/
+  app.py                    # 로컬 PC: 분석+간단웹(8501) — yfinance 있음
+  kospi_export_core.py
+  kospi_candidates.py
+  run_local_export.py       # PC 스케줄: export만 → nas_web_payload
+  app_nas_serve_kospi.py   # NAS Docker: results_web.json + charts 만 읽음(8501)
+  web_templates.py
+  Dockerfile.nas
+  entrypoint_nas.sh
+  docker-compose.nas.yml
+  docker-compose.nas.host.yml
+  nas_web_payload/         # run_local_export 기본 출력 (동기화 대상)
+    results_web.json
+    charts/
+    state/
+
+[로컬] export 돌리기
+  python run_local_export.py
+  (기본: kospi/nas_web_payload 생성·갱신)
+
+-----------------------------------------
+[Synology + Drive 동기화 (지금 쓰시는 방식)]
+-----------------------------------------
+  - PC에서 run_local_export → 결과가
+    "local/kospi" = NAS 상 예: /volume1/docker/local/kospi
+    로 Drive/rsync로 맞춰짐
+  - 그 폴더 전체를 컨테이너 /app 에 마운트하면
+    JSON 경로: /app/nas_web_payload/results_web.json
+  - 볼륨: 호스트 "local/kospi"  →  컨테이너 "/app" (이 경로로 맞음)
+
+-----------------------------------------
+[DSM “실행 명령”에 절대 넣지 말 것]
+-----------------------------------------
+  docker, docker compose, sh -c "docker ..."  등은 모두 **실패**합니다.
+  (에러: exec: "docker": executable file not found in $PATH)
+  "실행 명령" = **컨테이너 안**에서 돌릴 말. Docker CLI 는 컨테이너에 없음.
+
+  → 이미지 "kospi-nas-web" (Dockerfile.nas로 빌드) 쓸 때:
+     **실행 명령 = 비움** (또는 엔트리포인트 /entrypoint_nas.sh 만)
+  → **공식 python 이미지** + local/kospi → /app 마운트 (Flask 없음 → ModuleNotFoundError 방지)
+     **실행 명령 전부 아래 한 줄 (복붙):**
+     sh -c "pip install --no-cache-dir 'flask>=3.0' && python3 /app/app_nas_serve_kospi.py"
+     (python3 만 쓰면 flask 미설치로 실패함)
+
+  compose 는 **NAS 쉘(SSH)에서** 호스트에 설치된 docker 로 실행.
+  **DSM UI의 컨테이너 "실행 명령"** 에 compose/docker 를 쓰지 말 것.
+
+-----------------------------------------
+[포트]
+-----------------------------------------
+  NAS 뷰어(app_nas_serve_kospi)는 **기본 8501** (로컬 app.py 와 동일).
+  (바꾸려면 환경 변수 FLASK_PORT, 예: FLASK_PORT=5002)
+
+  DSM "포트 설정" 예:
+    로컬 8501  →  컨테이너 8501
+
+-----------------------------------------
+[NAS Docker - 방식 A - nas_web_payload 만 붙이기(권장)]
+-----------------------------------------
+  - 호스트: .../kospi/nas_web_payload  →  /app/payload
+  - PAYLOAD_DIR=/app/payload
+  - docker compose -f docker-compose.nas.yml up -d
+  - http://NAS_IP:8501
+
+-----------------------------------------
+[NAS Docker - 방식 B - local/kospi 전체 = /app (동기화 폴더 그대로)]
+-----------------------------------------
+  - docker compose -f docker-compose.nas.host.yml up -d
+  - PAYLOAD_DIR=/app (compose에 있음) → /app/nas_web_payload/... 사용
+
+-----------------------------------------
+[검증] PC/동기화 후
+-----------------------------------------
+  python verify_nas.py
+  NAS에서 브라우저: http://NAS:8501/health  (json=… 한 줄이면 OK)

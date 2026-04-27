@@ -1,0 +1,6 @@
+# 이미지 빌드에 불필요 (용량·속도)
+nas_web_payload/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/
+*.md

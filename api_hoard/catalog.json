@@ -1,0 +1,226 @@
+{
+  "version": 2,
+  "description": "스냅샷: 환율·거시·통계(월드뱅크 등). FRED·EIA는 .env 키 있을 때만. '쇼핑몰 가격'은 대형몰·플랫폼 개별가 공개 API가 거의 없어 하단 non_active 참고.",
+  "apis": [
+    {
+      "id": "frankfurter_usd_krw",
+      "name": "Frankfurter USD→KRW (ECB)",
+      "kind": "fx",
+      "active": true,
+      "method": "GET",
+      "url": "https://api.frankfurter.app/latest?from=USD&to=KRW",
+      "auth": null,
+      "notes": "API 키 없음. 참고용(거래·체결이 아님)."
+    },
+    {
+      "id": "open_er_api_usd_base",
+      "name": "open.er-api USD base",
+      "kind": "fx",
+      "active": true,
+      "method": "GET",
+      "url": "https://open.er-api.com/v6/latest/USD",
+      "auth": null,
+      "notes": "rates.* 참고. 호출 제한 있음."
+    },
+    {
+      "id": "worldbank_kr_gdp_current_usd",
+      "name": "World Bank: 한국 GDP (current US$)",
+      "kind": "macro",
+      "active": true,
+      "method": "GET",
+      "url": "https://api.worldbank.org/v2/country/KR/indicator/NY.GDP.MKTP.CD?per_page=5&format=json",
+      "auth": null,
+      "notes": "거시(국가 계정) 추세. NY.GDP.MKTP.CD"
+    },
+    {
+      "id": "worldbank_kr_cpi_inflation_annual",
+      "name": "World Bank: 한국 물가상승률(연, 소비자물가)",
+      "kind": "macro",
+      "active": true,
+      "method": "GET",
+      "url": "https://api.worldbank.org/v2/country/KR/indicator/FP.CPI.TOTL.ZG?per_page=8&format=json",
+      "auth": null,
+      "notes": "FP.CPI.TOTL.ZG — 소비(물가) 맥락. 최근 항 NULL일 수 있음."
+    },
+    {
+      "id": "worldbank_kr_population",
+      "name": "World Bank: 한국 총인구",
+      "kind": "stats",
+      "active": true,
+      "method": "GET",
+      "url": "https://api.worldbank.org/v2/country/KR/indicator/SP.POP.TOTL?per_page=5&format=json",
+      "auth": null,
+      "notes": "SP.POP.TOTL"
+    },
+    {
+      "id": "worldbank_consumption_kr",
+      "name": "World Bank: 한국 최종소비지출(명목 US$)",
+      "kind": "consumption",
+      "active": true,
+      "method": "GET",
+      "url": "https://api.worldbank.org/v2/country/KR/indicator/NE.CON.TOTL.CD?per_page=5&format=json",
+      "auth": null,
+      "notes": "NE.CON.TOTL.CD — ‘소비 규모’ 거시(개인쇼핑 영수증이 아님)."
+    },
+    {
+      "id": "worldbank_gdp_per_capita_kr",
+      "name": "World Bank: 1인당 GDP(US$)",
+      "kind": "stats",
+      "active": true,
+      "method": "GET",
+      "url": "https://api.worldbank.org/v2/country/KR/indicator/NY.GDP.PCAP.CD?per_page=5&format=json",
+      "auth": null,
+      "notes": "NY.GDP.PCAP.CD"
+    },
+    {
+      "id": "worldbank_merch_exports_kr",
+      "name": "World Bank: 한국 상품·서비스 수출(US$)",
+      "kind": "trade",
+      "active": true,
+      "method": "GET",
+      "url": "https://api.worldbank.org/v2/country/KR/indicator/NE.EXP.GNFS.CD?per_page=5&format=json",
+      "auth": null,
+      "notes": "NE.EXP.GNFS.CD — 원자재·무역 맥락."
+    },
+    {
+      "id": "worldbank_merch_imports_kr",
+      "name": "World Bank: 한국 상품·서비스 수입(US$)",
+      "kind": "trade",
+      "active": true,
+      "method": "GET",
+      "url": "https://api.worldbank.org/v2/country/KR/indicator/NE.IMP.GNFS.CD?per_page=5&format=json",
+      "auth": null,
+      "notes": "NE.IMP.GNFS.CD"
+    },
+    {
+      "id": "census2020_pl_state_pops",
+      "name": "U.S. Census: 2020 PL 주별 인구(공개, 키 없이 가능할 수 있음)",
+      "kind": "stats",
+      "active": true,
+      "method": "GET",
+      "url": "https://api.census.gov/data/2020/dec/pl?get=NAME,P1_001N&for=state:*",
+      "auth": null,
+      "notes": "미국 쪽 통계(비교용). 403/키요구 시 .env CENSUS_API_KEY 후 url_template으로 바꾸는 방식 권장."
+    },
+    {
+      "id": "coingecko_btc_eth_usd",
+      "name": "CoinGecko: BTC·ETH/USD(시세 맛보기, 투자권고 아님)",
+      "kind": "market",
+      "active": true,
+      "method": "GET",
+      "url": "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum&vs_currencies=usd&include_24hr_change=true",
+      "auth": null,
+      "notes": "API 키 없음(속도·제한 있음). ‘원자재/자산’ 가격 민감도 느낄 때용. 통화·원유와 성격이 다름."
+    },
+    {
+      "id": "openfood_product_nutella_sample",
+      "name": "Open Food Facts: 상품 1건(바코드, 가공식품 메타, 몰가 아님)",
+      "kind": "consumer_goods",
+      "active": true,
+      "method": "GET",
+      "url": "https://world.openfoodfacts.org/api/v2/product/3017620422003?fields=code,product_name,brands,image_front_small_url,quantity",
+      "auth": null,
+      "notes": "검색 API는 503이 잦아 **단일 상품** 엔드포인트 사용. '소비/식품' 메타(몰**실시간가**와 다름). ecommerce_pricing_reality 비고도 참고."
+    },
+    {
+      "id": "fred_series_DFF",
+      "name": "FRED: 연방기금금리(DFF) 최근",
+      "kind": "macro",
+      "active": true,
+      "method": "GET",
+      "url_template": "https://api.stlouisfed.org/fred/series/observations?series_id=DFF&api_key={fred_api_key}&file_type=json&sort_order=desc&limit=5",
+      "auth": { "env": "FRED_API_KEY" },
+      "notes": "FRED: https://fred.stlouisfed.org/docs/api/api_key.html"
+    },
+    {
+      "id": "fred_dcoilwti",
+      "name": "FRED: WTI유가 (원유)",
+      "kind": "commodity",
+      "active": true,
+      "method": "GET",
+      "url_template": "https://api.stlouisfed.org/fred/series/observations?series_id=DCOILWTI&api_key={fred_api_key}&file_type=json&sort_order=desc&limit=10",
+      "auth": { "env": "FRED_API_KEY" },
+      "notes": "DCOILWTI — 석유(원자재) 대표"
+    },
+    {
+      "id": "fred_cpius",
+      "name": "FRED: 미국 소비자물가(CPI) 월간",
+      "kind": "macro",
+      "active": true,
+      "method": "GET",
+      "url_template": "https://api.stlouisfed.org/fred/series/observations?series_id=CPIAUCSL&api_key={fred_api_key}&file_type=json&sort_order=desc&limit=6",
+      "auth": { "env": "FRED_API_KEY" },
+      "notes": "CPIAUCSL — ‘소비/물가’ 맥락(한국이 아님)"
+    },
+    {
+      "id": "fred_retail_us",
+      "name": "FRED: 미국 소매판매(소비, 미국)",
+      "kind": "consumption",
+      "active": true,
+      "method": "GET",
+      "url_template": "https://api.stlouisfed.org/fred/series/observations?series_id=RRSFS&api_key={fred_api_key}&file_type=json&sort_order=desc&limit=12",
+      "auth": { "env": "FRED_API_KEY" },
+      "notes": "RRSFS — ‘소비’의 거시지표(몰·카드 사용액이 아님)"
+    },
+    {
+      "id": "fred_umich_sentiment",
+      "name": "FRED: 미시간 기대(소비심리)",
+      "kind": "macro",
+      "active": true,
+      "method": "GET",
+      "url_template": "https://api.stlouisfed.org/fred/series/observations?series_id=UMCSENT&api_key={fred_api_key}&file_type=json&sort_order=desc&limit=6",
+      "auth": { "env": "FRED_API_KEY" },
+      "notes": "UMCSENT"
+    },
+    {
+      "id": "fred_gold_london",
+      "name": "FRED: 런던 금(GOLD) 일 단위",
+      "kind": "commodity",
+      "active": true,
+      "method": "GET",
+      "url_template": "https://api.stlouisfed.org/fred/series/observations?series_id=GOLDAMGBD228NLBM&api_key={fred_api_key}&file_type=json&sort_order=desc&limit=8",
+      "auth": { "env": "FRED_API_KEY" },
+      "notes": "GOLDAMGBD228NLBM"
+    },
+    {
+      "id": "fred_copper",
+      "name": "FRED: 구리 가격(대표, 글로벌)",
+      "kind": "commodity",
+      "active": true,
+      "method": "GET",
+      "url_template": "https://api.stlouisfed.org/fred/series/observations?series_id=PCOPPUSDM&api_key={fred_api_key}&file_type=json&sort_order=desc&limit=8",
+      "auth": { "env": "FRED_API_KEY" },
+      "notes": "PCOPPUSDM — ‘원자재(비철)’"
+    },
+    {
+      "id": "eia_petrol_rwtc",
+      "name": "EIA(미): 정유/원유(PET.RWTC.D) — 공식 에너지",
+      "kind": "commodity",
+      "active": true,
+      "method": "GET",
+      "url_template": "https://api.eia.gov/series/?api_key={eia_api_key}&out=json&series_id=PET.RWTC.D",
+      "auth": { "env": "EIA_API_KEY" },
+      "notes": "EIA: https://www.eia.gov/opendata/register.php (무료 키) — 품질/출처는 EIA"
+    },
+    {
+      "id": "bok_ecos_template",
+      "name": "한국은행 ECOS (한국 쪽 계열·잔액/금리/교역 등)",
+      "kind": "macro",
+      "active": false,
+      "method": "GET",
+      "url": "",
+      "auth": { "env": "ECOS_API_KEY" },
+      "notes": "https://ecos.bok.or.kr/ 서비스키 + 통계표/항목 ID URL 을 catalog에 url 필드로 직접 넣는 방식. 자동 fetch는 v1에선 템플릿 전용."
+    },
+    {
+      "id": "ecommerce_pricing_reality",
+      "name": "쇼핑몰(쿠팡·11번가 등) “실시간가” 공개 API",
+      "kind": "meta",
+      "active": false,
+      "method": "GET",
+      "url": "",
+      "auth": null,
+      "notes": "상용몰/마켓플랫폼 **개별 상품의 실시간 판매가**를 누구나 무료로 쓰는 **공인 REST**는 사실상 없습니다(이용약관·봇·가격리드 전문 API가 대부분). **대안**: (1) Open Food 등 **가공 식음료 메타/바코드** (2) statistics.retail(거시) — 공공·월드뱅크·FRED/ECOS (3) 직접 **제휴/크롤(합법/약관 필수)**. 이 행은 설명용이며 verify 하지 않음."
+    }
+  ]
+}

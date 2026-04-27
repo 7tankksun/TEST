@@ -1,0 +1,18 @@
+#  whole folder → /app (Drive sync to local/usa etc.)
+#  docker compose -f docker-compose.nas.host.yml up -d
+services:
+  usa-nas:
+    build:
+      context: .
+      dockerfile: Dockerfile.nas
+    image: usa-nas-web
+    container_name: usa-nas
+    restart: unless-stopped
+    ports:
+      - "8504:8504"
+    environment:
+      PAYLOAD_DIR: /app
+      FLASK_HOST: "0.0.0.0"
+      FLASK_PORT: "8504"
+    volumes:
+      - .:/app:ro

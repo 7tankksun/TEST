@@ -1,0 +1,19 @@
+# 전체 kospi 폴더를 /app에 읽기전용으로 붙일 때
+#   docker compose -f docker-compose.nas.host.yml up -d --build
+# 결과: /app/nas_web_payload/... (PAYLOAD_DIR=/app → results 후보 중 nas_web_payload 경로를 사용)
+services:
+  kospi-nas:
+    build:
+      context: .
+      dockerfile: Dockerfile.nas
+    image: kospi-nas-web
+    container_name: kospi-nas
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    environment:
+      PAYLOAD_DIR: /app
+      FLASK_HOST: "0.0.0.0"
+      FLASK_PORT: "8501"
+    volumes:
+      - .:/app:ro

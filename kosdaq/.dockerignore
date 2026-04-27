@@ -1,0 +1,4 @@
+nas_web_payload/
+**/__pycache__/
+**/*.pyc
+**/.pytest_cache/

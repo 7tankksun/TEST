@@ -1,0 +1,49 @@
+OPIC 암기 사이트 — NAS(웹) 배포
+================================
+
+[원리]
+- 사이트는 "정적 파일"만 있으면 됩니다. (HTML/JS/CSS + data/materials.json, data/it-news.json(선택))
+- NAS에서 서버·Node를 돌릴 필요 없습니다. 웹 공유 폴더에 복사만 하면 됩니다.
+
+[PC에서 해야 할 일 (자료 갱신할 때마다)]
+1) OPIC\opic-study-site 폴더에서 PowerShell:
+     .\local-run.ps1
+   → 빌드( DOCX → materials.json ) + (Node가 있으면) IT 뉴스 RSS → it-news.json + 로컬 미리보기.
+   (Node 없이도 OPIC은 됩니다. IT 뉴스만 별도: .\scripts\update-it-news.ps1 )
+
+2) 배포용으로 "public" 폴더 전체를 압축하거나, 그 안 파일만 NAS로 복사합니다.
+
+[복사할 대상 (반드시 이 구조)]
+  public\
+    index.html
+    app.js
+    styles.css
+    data\
+      materials.json
+      it-news.json
+
+[Synology NAS 예시]
+A) Web Station (Apache/Nginx) 사용하는 경우
+   - "가상 호스트" 또는 웹 폴더 루트에 위 public 안의 "내용물"을 넣습니다.
+   - 루트 URL이 곧 index.html이 되게 하면 됩니다.
+     (예: web/opic/ 아래에 index.html, app.js, styles.css, data/ 배치)
+   - 이 경우 사이트 주소 예: http://(NAS이름또는DDNS)/opic/
+
+B) "웹 공유"만으로 index.html이 열리는 경우
+   - 공유 폴더에 public 내용을 그대로 넣고, index.html URL로 접속.
+
+[주의]
+- materials.json이 없으면 화면에 "불러오기 실패"가 뜹니다. PC에서 build 후 복사하세요.
+- it-news.json: IT 뉴스 탭용. PC에서 `node scripts\fetch-it-news.mjs` 로 만들 수 있습니다. 최신이 필요하면 PC에서
+  1일 1회(또는 그때그때) 실행 후 public/data/it-news.json 만 다시 NAS에 덮어쓰기. (작업 스케줄러에 등록 가능)
+- docx는 NAS에 올릴 필요 없습니다. (선택) 백업용으로만 두셔도 됩니다.
+
+[Docker/리눅스 박스에만 올릴 때 (선택)]
+- nginx 등으로 root를 public과 동일한 디렉터리로 지정:
+    root /var/www/opic;
+    index index.html;
+- CORS는 같은 도메인이면 보통 문제 없습니다.
+
+[요약]
+  로컬:  .\local-run.ps1
+  NAS:   public 폴더 통째로 웹 루트에 복사 → 브라우저로 index.html 열기

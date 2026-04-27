@@ -1,0 +1,32 @@
+OPIC/포털 — Docker “귀찮음” 줄이는 방법
+========================================
+
+[왜 매번 이미지가 귀찮은가]
+- 컨테이너 “이미지” 안에 python 파일을 COPY 해 두고, 바꿀 때마다 이미지를 다시 빌드/땡기면 그만큼 번거롭다.
+
+[한 번만 하면 되는 구조]
+1) NAS에 폴더를 하나 둔다. 예: /volume1/docker/portal
+   (Synology Drive로 PC의 portal 폴더와 동기화해도 됨 = 코드 수정이 곧 NAS 반영)
+2) 그 폴더에 portal.py, requirements.txt, (있으면) docker-compose.yml
+3) 컨테이너는 python 이미지 **하나**만 쓰고, 위 폴더를 **볼륨 마운트**해 /app 에 붙인다.
+4) CMD는 requirements 설치 + gunicorn --reload (이 docker-compose.yml 참고)
+
+[코드 바꾼 뒤에 뭘 하면 되나]
+- gunicorn --reload 사용 중이면: portal.py 저장만 하면 1~2초 뒤 자동 반영. 컨테이너 재시작 없음.
+- --reload 끈 프로덕션 모드면: docker restart portal-1 (또는 DSM에서 컨테이너 “다시 시작” 한 번). 이미지 pull 없음.
+
+[이미지 땡기기 줄이기]
+- python:latest 대신 docker-compose에 적어 둔 것처럼 **python:3.12-slim** 같이 **버전 고정**. “latest”는 자주 pull 유발.
+
+[Container Manager (GUI)만 쓸 때]
+- 이미지: python:3.12-slim
+- 볼륨: 호스트 /volume1/.../portal → 컨테이너 /app
+- “실행 명령”에 위 command 와 비슷하게:
+  sh -c "cd /app && pip install -q -r requirements.txt && gunicorn -b 0.0.0.0:8500 -w 1 --reload portal:app"
+- 환경 변수 PORT=8500
+
+[OPIC static (8508)은 별도]
+- opic 쪽은 정적 public 만 nginx/역프록시로 올리면, 포털(python)과 이미지 공유할 필요 없음.
+- 8500 = 포털, 8508 = OPIC (역프록시로 opic.도메인 → 8508)
+
+이 폴더의 docker-compose.yml 은 예시; NAS 경로·포트는 환경에 맞게 수정.

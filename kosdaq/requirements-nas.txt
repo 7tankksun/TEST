@@ -1,0 +1,2 @@
+# NAS 전용 app_nas_serve_* (읽기 전용 웹)
+flask>=3.0

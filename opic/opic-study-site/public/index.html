@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>개인 학습 · OPIC · 글 모음</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="header">
+      <h1>개인 학습 &amp; 모음</h1>
+      <p class="tagline">OPIC 암기·DOCX 자료와 함께, 인용·책·메모를 한곳에 둘 수 있어요.</p>
+    </header>
+
+    <nav class="tabs" role="tablist">
+      <button type="button" class="tab is-active" data-view="home" role="tab" aria-selected="true">소개</button>
+      <button type="button" class="tab" data-view="library" role="tab">글·책·인용</button>
+      <button type="button" class="tab" data-view="docs" role="tab">OPIC 자료</button>
+      <button type="button" class="tab" data-view="qa" role="tab">질문 카드</button>
+      <button type="button" class="tab" data-view="drill" role="tab">문장 암기</button>
+      <button type="button" class="tab" data-view="itnews" role="tab">IT 뉴스</button>
+      <button type="button" class="tab" data-view="travel" role="tab">가족 여행</button>
+    </nav>
+
+    <main>
+      <section id="view-home" class="view is-visible" aria-label="소개">
+        <div class="card">
+          <h2>OPIC 2급</h2>
+          <p id="meta-blurb" class="prose"></p>
+          <h3>체크리스트</h3>
+          <ul id="meta-tips" class="checklist"></ul>
+          <p class="meta-footnote"><span id="meta-generated"></span></p>
+        </div>
+        <div class="card home-extra">
+          <h2>글·책·인용</h2>
+          <p class="prose">
+            상단 <strong>글·책·인용</strong> 탭에 좋은 문장, 읽는 책, 짧은 메모를 쌓을 수 있어요. 내용은
+            <code>public/data/library.json</code> 파일만 고치면 됩니다. (빌드 스크립트 돌릴 필요 없음)
+          </p>
+        </div>
+      </section>
+
+      <section id="view-library" class="view" hidden aria-label="글책인용">
+        <div class="card library-head">
+          <h2 id="lib-title">글·책·인용</h2>
+          <p id="lib-intro" class="prose"></p>
+        </div>
+        <div class="toolbar library-toolbar">
+          <button type="button" class="btn" id="lib-shuffle">다른 인용</button>
+        </div>
+        <article id="lib-spotlight" class="lib-spotlight" hidden></article>
+        <h3 class="lib-section-title">인용</h3>
+        <ul id="lib-quotes" class="lib-list"></ul>
+        <h3 class="lib-section-title">책</h3>
+        <div id="lib-books" class="lib-books"></div>
+        <h3 class="lib-section-title">메모</h3>
+        <ul id="lib-notes" class="lib-list lib-notes"></ul>
+        <p class="meta-footnote">편집: NAS/PC의 <code>public/data/library.json</code> 저장 후 새로고침.</p>
+      </section>
+
+      <section id="view-docs" class="view" hidden aria-label="자료">
+        <div class="toolbar">
+          <label for="file-select">문서</label>
+          <select id="file-select"></select>
+          <label class="filter"><input type="checkbox" id="en-filter" /> 영어가 많은 단락만</label>
+        </div>
+        <div id="doc-title" class="doc-title"></div>
+        <div id="doc-flow" class="doc-flow" aria-label="문서 본문"></div>
+      </section>
+
+      <section id="view-qa" class="view" hidden aria-label="질문 카드">
+        <div class="toolbar">
+          <span id="qa-counter" class="counter"></span>
+          <button type="button" id="qa-shuffle" class="btn">섞기</button>
+        </div>
+        <div id="qa-card" class="flash">
+          <div class="flash-q">
+            <span class="label">질문 (시험에서 이런 식)</span>
+            <p id="qa-question" class="flash-text"></p>
+          </div>
+          <button type="button" class="btn btn-reveal" id="qa-reveal">답 힌트 보기 (샘플 1~2문장)</button>
+          <div id="qa-answer" class="flash-a" hidden>
+            <span class="label">자료에 있는 힌트</span>
+            <ul id="qa-hints"></ul>
+            <p class="hint">말로 짧게 한번 더 요약해 보세요. 녹음 앱이 있으면 60초만 찍어 보는 것도 좋습니다.</p>
+          </div>
+        </div>
+        <div class="nav-row">
+          <button type="button" class="btn" id="qa-prev">이전</button>
+          <button type="button" class="btn btn-primary" id="qa-next">다음</button>
+        </div>
+      </section>
+
+      <section id="view-drill" class="view" hidden aria-label="문장 암기">
+        <div class="toolbar">
+          <label for="drill-file">주제(문서)</label>
+          <select id="drill-file"></select>
+          <button type="button" class="btn" id="drill-random">다른 문장</button>
+        </div>
+        <div class="card drill-card">
+          <p class="label">앞 절만 보이고, 뒤는 가려 두었습니다. 말해본 뒤 <strong>뒤 문장 보기</strong>를 누르세요.</p>
+          <p id="drill-front" class="drill-front"></p>
+          <button type="button" class="btn btn-reveal" id="drill-reveal">뒤 문장 보기</button>
+          <p id="drill-back" class="drill-back" hidden></p>
+        </div>
+        <p class="meta-footnote">긴 문장(영어 위주)에서 앞/뒤로 나눕니다. 2급은 한 문장을 완벽히 외우기보다, 리듬을 몸에 익히는 것이 도움이 됩니다.</p>
+      </section>
+
+      <section id="view-itnews" class="view" hidden aria-label="IT 뉴스">
+        <div class="card itnews-head">
+          <h2>IT 뉴스</h2>
+          <p id="itnews-meta" class="prose itnews-meta"></p>
+          <p class="meta-footnote">
+            링크만 있는 항목은 제외하고, 짧은 글은 <strong>r.jina.ai</strong>로 원문을 읽어 옵니다. 정렬은
+            <strong>최신도 + HN 추천수/댓글 + 본문 길이</strong>를 합친 점수입니다. (
+            <code>IT_NEWS_NO_JINA=1</code> 이면 Jina 생략)
+            갱신: <code>node scripts/fetch-it-news.mjs</code> 또는 <code>update-it-news.cmd</code>
+          </p>
+        </div>
+        <p id="itnews-empty" class="prose itnews-empty" hidden>아직 it-news.json이 없거나 항목이 없습니다. 위 안내대로 갱신 스크립트를 한번 실행하세요.</p>
+        <ul id="itnews-list" class="itnews-list" aria-label="기사 목록"></ul>
+      </section>
+
+      <section id="view-travel" class="view" hidden aria-label="가족 여행">
+        <div class="card travel-head">
+          <h2 id="travel-title">가족 여행</h2>
+          <p id="travel-intro" class="prose"></p>
+          <p id="travel-sort-note" class="travel-sort-note"></p>
+        </div>
+        <p id="travel-empty" class="prose travel-empty" hidden>travel.json을 불러올 수 없습니다.</p>
+        <div id="travel-destinations" class="travel-destinations" aria-label="지역·국가별"></div>
+        <p id="travel-disclaimer" class="meta-footnote travel-disclaimer"></p>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>
+        OPIC 자료: <code>.\scripts\build-content.ps1</code> · IT 뉴스: <code>update-it-news.cmd</code> ·
+        가족 여행: <code>public/data/travel.json</code> · 모음(인용/책): <code>public/data/library.json</code> ·
+        로컬: <code>.\local-run.ps1</code> · NAS: <code>public</code> 전체
+      </p>
+    </footer>
+
+    <script type="module" src="app.js?v=3"></script>
+  </body>
+</html>

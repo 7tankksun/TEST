@@ -1,0 +1,20 @@
+# kosdaq 폴더에서: docker compose -f docker-compose.nas.yml up -d
+#
+# [Synology] DSM에서만 쓸 때: 코드는 호스트 .../local/kosdaq (또는 .../kosdaq) → /app,
+#   결과만 .../kosdaq/nas_web_payload → /app/payload (아래 volumes 와 동일)
+services:
+  kosdaq-nas:
+    build:
+      context: .
+      dockerfile: Dockerfile.nas
+    image: kosdaq-nas-web
+    container_name: kosdaq-nas
+    restart: unless-stopped
+    ports:
+      - "8502:8502"
+    environment:
+      PAYLOAD_DIR: /app/payload
+      FLASK_HOST: "0.0.0.0"
+      FLASK_PORT: "8502"
+    volumes:
+      - ./nas_web_payload:/app/payload:ro

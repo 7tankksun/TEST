@@ -1,0 +1,98 @@
+{
+  "api_id": "worldbank_gdp_per_capita_kr",
+  "fetched_utc": "2026-04-26T10:55:11.115401Z",
+  "source_url": "https://api.worldbank.org/v2/country/KR/indicator/NY.GDP.PCAP.CD?per_page=5&format=json",
+  "http_status": 200,
+  "response_json": [
+    {
+      "page": 1,
+      "pages": 14,
+      "per_page": 5,
+      "total": 66,
+      "sourceid": "2",
+      "lastupdated": "2026-04-08"
+    },
+    [
+      {
+        "indicator": {
+          "id": "NY.GDP.PCAP.CD",
+          "value": "GDP per capita (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2025",
+        "value": null,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 1
+      },
+      {
+        "indicator": {
+          "id": "NY.GDP.PCAP.CD",
+          "value": "GDP per capita (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2024",
+        "value": 36238.639908315,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 1
+      },
+      {
+        "indicator": {
+          "id": "NY.GDP.PCAP.CD",
+          "value": "GDP per capita (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2023",
+        "value": 35674.095995632,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 1
+      },
+      {
+        "indicator": {
+          "id": "NY.GDP.PCAP.CD",
+          "value": "GDP per capita (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2022",
+        "value": 34822.4048404971,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 1
+      },
+      {
+        "indicator": {
+          "id": "NY.GDP.PCAP.CD",
+          "value": "GDP per capita (current US$)"
+        },
+        "country": {
+          "id": "KR",
+          "value": "Korea, Rep."
+        },
+        "countryiso3code": "KOR",
+        "date": "2021",
+        "value": 37518.4635305697,
+        "unit": "",
+        "obs_status": "",
+        "decimal": 1
+      }
+    ]
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "title": "글·책·인용",
+  "intro": "이 파일(`public/data/library.json`)만 편집해 내용을 늘릴 수 있어요. OPIC랑 별도로, 좋은 문장·책·메모를 넣기 좋게 만들었습니다.",
+  "quotes": [
+    {
+      "text": "작은 습관이 인생을 바꾼다. 매일 1%씩만 나아가도, 1년 뒤엔 꽤 달라진다.",
+      "source": "습관에 관한 말 (예시)"
+    },
+    {
+      "text": "I’ve learned that people will forget what you said, people will forget what you did, but people will never forget how you made them feel.",
+      "source": "Maya Angelou"
+    },
+    {
+      "text": "완벽을 추구하다 끝내지 못하는 것보다, 불완전해도 끝까지 하는 편이 낫다.",
+      "source": "작성자 메모 (예시)"
+    }
+  ],
+  "books": [
+    {
+      "title": "책 제목을 여기에",
+      "author": "작가 (선택)",
+      "note": "읽다가 남기고 싶은 한 줄, 인상, 다음에 다시 읽을 페이지 등 (선택)"
+    },
+    {
+      "title": "Atomic Habits",
+      "author": "James Clear",
+      "note": "작은 습관 누적 - 본 사이트 ‘문장 암기’ 루틴이랑도 잘 맞는 책 (예시)"
+    }
+  ],
+  "notes": [
+    {
+      "title": "짧은 메모 (예시)",
+      "body": "날짜, 링크, 할 일, 아이디어 등 자유롭게 적을 수 있어요."
+    }
+  ]
+}

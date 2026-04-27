@@ -1,0 +1,38 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+.env
+.env.*
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# --- 실행으로 생기는 결과물 (용량 큼, NAS에만 두고 Git에는 소스만) ---
+**/nas_web_payload/
+
+# --- 로그·임시 ---
+*.log
+*_detail.log
+**/scripts/_dump_out.txt
+
+# --- Node (opic-study-site 등에서 npm install 시) ---
+node_modules/
+
+# --- Synology Drive (동기화 메타, Git에 불필요) ---
+.SynologyWorkingDirectory/
+
+# --- OS ---
+Thumbs.db
+.DS_Store
+Desktop.ini
+
+# --- 에디터(원하면 주석 제거하고 사용) ---
+# .vscode/
+# .idea/

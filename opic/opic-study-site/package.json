@@ -1,0 +1,12 @@
+{
+  "name": "opic-study-site",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build-content.mjs",
+    "update-it-news": "node scripts/fetch-it-news.mjs",
+    "serve": "node scripts/serve.mjs",
+    "dev": "node scripts/build-content.mjs && node scripts/serve.mjs"
+  }
+}
