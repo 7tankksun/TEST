@@ -14,6 +14,11 @@ import warnings
 import datetime
 from collections import OrderedDict
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None  # type: ignore[misc, assignment]
+
 import pandas as pd
 import yfinance as yf
 import matplotlib
@@ -214,6 +219,109 @@ def _load_previous_signals(signal_history_path: str):
         return {k: _normalize_signal_value(v) for k, v in raw.items()}
     except Exception:
         return {}
+
+
+def _calendar_today_iso(tz_name: str) -> str:
+    if ZoneInfo is not None:
+        try:
+            return datetime.datetime.now(ZoneInfo(tz_name)).date().isoformat()
+        except Exception:
+            pass
+    return datetime.datetime.now().date().isoformat()
+
+
+def _minimal_tickers_for_history(matches: dict) -> dict:
+    out: dict[str, dict] = {}
+    for k, v in matches.items():
+        if isinstance(v, dict):
+            out[k] = {"entry": v.get("entry", "-")}
+        else:
+            out[k] = {"entry": str(v)}
+    return out
+
+
+def _load_signals_by_date(path: str) -> dict:
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_signals_by_date(path: str, hist: dict) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(hist, f, ensure_ascii=False, indent=2)
+
+
+def _migrate_signals_history_from_last_run(
+    history: dict, signal_history_path: str, today_iso: str
+) -> dict:
+    if history:
+        return history
+    if not os.path.isfile(signal_history_path):
+        return history
+    try:
+        with open(signal_history_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("tickers") or {}
+        if not raw:
+            return history
+        saved_at = (data.get("saved_at") or "")[:10]
+        if len(saved_at) != 10 or saved_at >= today_iso:
+            return history
+        history[saved_at] = {"tickers": _minimal_tickers_for_history(raw)}
+    except Exception:
+        pass
+    return history
+
+
+def _prev_signals_strictly_before_date(history: dict, today_iso: str) -> tuple[dict, str | None]:
+    prior = [d for d in history.keys() if isinstance(d, str) and len(d) == 10 and d < today_iso]
+    if not prior:
+        return {}, None
+    bd = max(prior)
+    raw = (history.get(bd) or {}).get("tickers") or {}
+    return {k: _normalize_signal_value(v) for k, v in raw.items()}, bd
+
+
+def _prune_signals_history(hist: dict, today_iso: str, keep_days: int = 400) -> None:
+    try:
+        t0 = datetime.date.fromisoformat(today_iso)
+    except ValueError:
+        return
+    cutoff = (t0 - datetime.timedelta(days=keep_days)).isoformat()
+    for k in list(hist.keys()):
+        if isinstance(k, str) and len(k) == 10 and k < cutoff:
+            del hist[k]
+
+
+def _load_diff_daily_log(path: str) -> list:
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            log = json.load(f)
+        return log if isinstance(log, list) else []
+    except Exception:
+        return []
+
+
+def _save_diff_daily_log(path: str, log: list) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(log, f, ensure_ascii=False, indent=2)
+
+
+def _upsert_daily_diff_log(path: str, entry: dict) -> list:
+    log = _load_diff_daily_log(path)
+    sd = entry.get("snapshot_date")
+    log = [e for e in log if e.get("snapshot_date") != sd]
+    log.append(entry)
+    log = log[-60:]
+    _save_diff_daily_log(path, log)
+    return log
 
 
 def _build_diff_lists(prev: dict, new_matches: dict):
@@ -545,7 +653,6 @@ def run_usa_export(base_dir: str) -> dict:
     _setup_font(base_dir)
 
     signal_history_path = os.path.join(state_dir, "last_run_signals.json")
-    prev_signals = _load_previous_signals(signal_history_path)
 
     chart_limit_raw = os.environ.get("MAX_TREND_CHARTS", "50").strip()
     chart_limit = 50 if chart_limit_raw == "" else int(chart_limit_raw)
@@ -633,8 +740,33 @@ def run_usa_export(base_dir: str) -> dict:
             except OSError:
                 pass
 
-    last_diff_added, last_diff_removed = _build_diff_lists(prev_signals, new_matches)
     last_analysis_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    today_iso = _calendar_today_iso("America/New_York")
+    signals_by_date_path = os.path.join(state_dir, "signals_by_date.json")
+    diff_daily_log_path = os.path.join(state_dir, "diff_daily_log.json")
+
+    history = _load_signals_by_date(signals_by_date_path)
+    history = _migrate_signals_history_from_last_run(history, signal_history_path, today_iso)
+    prev_signals, diff_baseline_date = _prev_signals_strictly_before_date(history, today_iso)
+    last_diff_added, last_diff_removed = _build_diff_lists(prev_signals, new_matches)
+
+    history[today_iso] = {
+        "tickers": _minimal_tickers_for_history(new_matches),
+        "saved_at": last_analysis_time,
+    }
+    _prune_signals_history(history, today_iso)
+    _save_signals_by_date(signals_by_date_path, history)
+
+    diff_log = _upsert_daily_diff_log(
+        diff_daily_log_path,
+        {
+            "snapshot_date": today_iso,
+            "baseline_date": diff_baseline_date,
+            "last_diff_added": last_diff_added,
+            "last_diff_removed": last_diff_removed,
+        },
+    )
+    diff_past_days = [e for e in diff_log if e.get("snapshot_date") != today_iso][-15:]
 
     with open(signal_history_path, "w", encoding="utf-8") as f:
         json.dump(
@@ -673,6 +805,9 @@ def run_usa_export(base_dir: str) -> dict:
         "top_table": top_table,
         "last_diff_added": last_diff_added,
         "last_diff_removed": last_diff_removed,
+        "diff_snapshot_date": today_iso,
+        "diff_baseline_date": diff_baseline_date,
+        "diff_past_days": diff_past_days,
         "scoring": {
             "description": "미국 섹터 고정 후보. 2단계: 주가>MA150>MA200, MA200 20봉 우상, MA50·종가 정배. RS는 ^GSPC. 총점=거래일·RS+시총·TTM 영업이익률 상대가점(USA_BONUS_MARKET_CAP=0 등).",
             "max_trend_charts": chart_limit,
@@ -685,5 +820,6 @@ def run_usa_export(base_dir: str) -> dict:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
     print(f"[{last_analysis_time}] 완료: 2단계 {len(new_matches)}개 → {results_path}")
-    print(f"  신규: {len(last_diff_added)} / 탈락: {len(last_diff_removed)}")
+    _bd = diff_baseline_date or "(저장 이력 없음)"
+    print(f"  신규/탈락 ({_bd} → {today_iso}): {len(last_diff_added)} / {len(last_diff_removed)}")
     return payload

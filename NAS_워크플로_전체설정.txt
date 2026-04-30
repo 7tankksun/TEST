@@ -1,0 +1,139 @@
+================================================================================
+  JUNNA NAS 워크플로 — 로컬 PC 개발 + Synology Drive 동기화 + NAS에서 웹 서빙
+================================================================================
+
+■ 구조 (이미 쓰시는 방식과 동일하게 정리)
+
+  [로컬 PC]
+    - Cursor / Python 으로 코드 수정
+    - export·빌드 실행 → nas_web_payload, materials.json 등 생성
+  [Synology Drive]
+    - PC의 SynologyDrive 폴더 ↔ NAS 디렉터리 실시간(또는 주기) 복제
+  [NAS]
+    - Container Manager 로 각 서비스 Docker 컨테이너 실행
+    - 역프록시로 도메인·HTTPS 연결 (선택)
+    - 포털(8500)에서 각 사이트 링크 집약
+
+  코드는 GitHub에도 올리고, “실제 서빙·동기화”는 Drive 로 NAS 와 맞추면 됩니다.
+
+
+■ 권장 NAS 디렉터리 (예시 — 본인 경로에 맞게)
+
+  File Station 예: /volume1/docker/local/
+
+    local/
+      portal/           ← 포털 Flask
+      streamlit/        ← 생활정보 Streamlit
+      kospi/            ← 소스 + nas_web_payload (PC export 결과 동기화)
+      kosdaq/
+      my_web_USA/
+      local/            ← (이름이 local 인 하위 프로젝트)
+      opic/
+        opic-study-site/  ← public/, docker-opic-static.yaml
+      ...
+
+  PC 의 C:\code\SynologyDrive\... 가 위와 1:1 로 매핑되도록 Drive 동기화를 맞추면
+  설정이 단순해집니다.
+
+
+■ 서비스별 포트 표 (NAS 호스트 기준)
+
+  서비스              호스트포트   컨테이너/설명
+  ----------------   ---------   ------------------------------------------
+  포털 portal         8500        gunicorn portal:app
+  KOSPI 리포트        8501        app_nas_serve_kospi (FLASK_PORT)
+  KOSDAQ 리포트       8502        app_nas_serve_kosdaq
+  USA 리포트          8504        app_nas_serve_usa
+  OPIC 정적           8508        nginx → public/
+  Streamlit 생활      8509        streamlit (또는 python + sh -c 설치 명령)
+  local 분석(선택)    5001        app_nas_serve.py 기본 예시
+
+  ※ 다른 컨테이너와 겹치면 FLASK_PORT 등만 바꿔도 됨.
+
+
+■ 로컬 PC — 자주 하는 작업
+
+  1) 주식·USA 결과 갱신 (NAS 로 동기화될 nas_web_payload 생성)
+       C:\code\SynologyDrive\run_all_export.cmd
+     또는 개별: kospi\run_local_export.py, kosdaq\, my_web_USA\
+
+  2) OPIC 웹 자료 빌드 (materials.json 등)
+       cd opic\opic-study-site
+       node scripts\build-content.mjs
+
+  3) Python 의존성 (새 PC 일 때)
+       py -3 -m pip install -r requirements_export.txt
+
+  4) Git
+       변경 후 commit / push (원격 백업)
+
+
+■ NAS — 컨테이너만 켜 두면 되는 것
+
+  각 폴더에 docker-compose.nas.yml 또는 안내가 있음. 공통 패턴:
+
+  - portal:     portal 폴더에서 docker compose up -d (볼륨 ./:/app)
+  - kospi:      이미지 빌드 또는 NAS_안내 대로, PAYLOAD 가 동기화된 경로 마운트
+  - opic:       opic-study-site 에서 docker compose -f docker-opic-static.yaml up -d
+  - streamlit:  streamlit\SYNOLOGY_실행명령.txt 참고
+                (python:latest 이면 sh -c "pip install ..." 한 줄 필수)
+
+
+■ 포털 환경변수 (NAS 의 portal docker-compose 또는 DSM UI)
+
+  실제 도메인·IP 에 맞게만 넣으면 됨. 미설정 시 portal.py 기본값(서브도메인 패턴).
+
+  PORTAL_BASE_URL=https://본인도메인          (한 번에 고정할 때)
+  또는
+  PORTAL_BASE_DOMAIN=본인도메인
+  PORTAL_HTTPS=1
+
+  서브도메인 대신 IP:포트 로 쓸 때 예:
+  KOSPI_URL=http://192.168.x.x:8501
+  KOSDAQ_URL=http://192.168.x.x:8502
+  US_URL=http://192.168.x.x:8504
+  OPIC_URL=http://192.168.x.x:8508
+  STREAMLIT_URL=http://192.168.x.x:8509
+  EDU_URL=...
+
+  링크가 이상하면 portal 컨테이너에 PORTAL_DEBUG_LINKS=1 넣고 포털 페이지 열어
+  실제로 찍히는 URL 확인.
+
+
+■ 역프록시 (DSM 로그인 포털 → 역방향 프록시) 예시
+
+  호스트          소스 HTTPS :443    대상 HTTP localhost:포트
+  stock.도메인                       → 8501 (kospi)
+  stock2.도메인                      → 8502 (kosdaq)
+  us.도메인                          → 8504 (usa)
+  opic.도메인                        → 8508
+  life.도메인                        → 8509 (streamlit)
+  루트 또는 portal.도메인            → 8500
+
+  Let’s Encrypt 는 DSM 에서 인증서 발급 후 해당 호스트에 연결.
+
+
+■ 방화벽
+
+  제어 패널 → 보안 → 방화벽 에서 위 포트(8500~8509 등 사용 중인 것) 허용.
+
+
+■ 동기화 시 주의
+
+  - nas_web_payload 는 용량 큼. Git 에는 .gitignore 로 제외해 두었음(저장소 정책).
+  - Drive 로는 그대로 NAS 에 복제 → 리포트용 Flask 컨테이너가 그 경로를 읽음.
+  - streamlit/entrypoint.sh 는 Linux 줄바꿈(LF) 권장. Windows에서 깨지면 NAS 에서 dos2unix.
+
+
+■ 문서 위치
+
+  - 이 파일:           SynologyDrive/NAS_워크플로_전체설정.txt
+  - Streamlit NAS:     streamlit/NAS_안내.txt, streamlit/SYNOLOGY_실행명령.txt
+  - 포털 Docker:       portal/NAS-Docker-간단.txt, portal/docker-compose.yml
+  - OPIC:              opic/opic-study-site/배포-NAS.txt
+  - PC 작업 순서:      PC_작업_체크리스트.txt (같은 폴더)
+
+
+================================================================================
+  끝. 도메인·내부 IP 만 본인 환경에 맞게 바꾸면 전체가 한 흐름으로 맞습니다.
+================================================================================

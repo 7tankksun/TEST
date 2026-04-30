@@ -53,11 +53,12 @@ def index():
     url_kosdaq = with_cache(_url_or_override("KOSDAQ_URL", "stock2"))
     url_us = with_cache(_url_or_override("US_URL", "us"))
     url_apt = with_cache(_url_or_override("APT_URL", "apt"))
-    url_agent = with_cache(_url_or_override("AGENT_URL", "agent"))
     url_other = with_cache(_url_or_override("OTHER_URL", "other"))
     url_edu = with_cache(_url_or_override("EDU_URL", "edu"))
     # OPIC: 기본 https://opic.<도메인> (EDU와 동일 패턴). 포트만 쓰면 OPIC_URL=http://IP:8508
     url_opic = with_cache(_url_or_override("OPIC_URL", "opic"))
+    # Streamlit 생활정보(날씨·에이전트): 기본 https://life.<도메인> — NAS 직접 포트면 STREAMLIT_URL=http://IP:8509
+    url_streamlit = with_cache(_url_or_override("STREAMLIT_URL", "life"))
 
     # 디버그: 포털이 어떤 base로 링크를 찍는지(문제 잡을 때)
     if _env_bool("PORTAL_DEBUG_LINKS", "0"):
@@ -65,6 +66,7 @@ def index():
             f"PORTAL_BASE_URL / PORTAL_BASE_DOMAIN → effective base: {base}",
             f"EDU link → {url_edu.split('?')[0]}",
             f"OPIC link → {url_opic.split('?')[0]}",
+            f"Streamlit link → {url_streamlit.split('?')[0]}",
         ]
         return Response("\n".join(lines), mimetype="text/plain; charset=utf-8")
 
@@ -147,10 +149,10 @@ def index():
             .icon-kosdaq {{ background: #E7F9F0; color: var(--green); }}
             .icon-apt {{ background: #F4F4FF; color: var(--indigo); }}
             .icon-us {{ background: #FFF0F0; color: var(--red); }}
-            .icon-agent {{ background: #FFF5E6; color: var(--orange); }}
             .icon-other {{ background: #F0F4FF; color: var(--indigo); }}
             .icon-edu {{ background: #E8F4FD; color: #0B6BCB; }}
             .icon-opic {{ background: #EDF6F1; color: #2A9D6E; }}
+            .icon-life {{ background: #E8F6FC; color: #0EA5E9; }}
 
             .card h2 {{ margin: 0; font-size: 1.4rem; font-weight: 800; letter-spacing: -0.5px; }}
             .card p {{ color: #4E5968; font-size: 1rem; line-height: 1.6; margin: 12px 0 24px; }}
@@ -199,13 +201,6 @@ def index():
                 <div class="go-btn" style="color: var(--indigo);">트렌드 진입 <i class="fas fa-chevron-right"></i></div>
             </a>
 
-            <a href="{url_agent}" class="card" rel="noopener noreferrer" target="_blank">
-                <div class="icon-box icon-agent"><i class="fas fa-robot"></i></div>
-                <h2>라이프 에이전트</h2>
-                <p>5·7세 육아 가이드 및<br>기상·운세·주요 뉴스 브리핑</p>
-                <div class="go-btn" style="color: var(--orange);">에이전트 호출 <i class="fas fa-chevron-right"></i></div>
-            </a>
-
             <a href="{url_other}" class="card" rel="noopener noreferrer" target="_blank">
                 <div class="icon-box icon-other"><i class="fas fa-bolt"></i></div>
                 <h2>급등주 검색기</h2>
@@ -229,12 +224,20 @@ def index():
                 <div class="domain-hint">링크: {url_opic.split("?")[0]}</div>
             </a>
 
+            <a href="{url_streamlit}" class="card" rel="noopener noreferrer" target="_blank">
+                <div class="icon-box icon-life"><i class="fas fa-cloud-sun"></i></div>
+                <h2>생활 정보 · 날씨</h2>
+                <p>Streamlit 대시보드 (지역 날씨·5일 예보·채팅 에이전트)<br>NAS 기본 포트 8509 · 역프록시 시 life 서브도메인</p>
+                <div class="go-btn" style="color: #0EA5E9;">열기 <i class="fas fa-chevron-right"></i></div>
+                <div class="domain-hint">링크: {url_streamlit.split("?")[0]} · 오버라이드: STREAMLIT_URL</div>
+            </a>
+
         </div>
 
         <footer>
             &copy; {datetime.datetime.now().year} JUNNA3D LAB. All rights reserved.<br>
             <span style="font-size: 0.75rem; opacity: 0.8;">Data Processing &amp; Cloud System based on Synology Docker</span><br>
-            <span style="font-size: 0.7rem; opacity: 0.7;">Base: {domain_from_base} · EDU: EDU_URL · OPIC: OPIC_URL (미설정 시 opic.&lt;도메인&gt;)</span>
+            <span style="font-size: 0.7rem; opacity: 0.7;">Base: {domain_from_base} · EDU: EDU_URL · OPIC: OPIC_URL · Streamlit: STREAMLIT_URL (미설정 시 life.&lt;도메인&gt;, 포트 8509)</span>
         </footer>
     </body>
     </html>

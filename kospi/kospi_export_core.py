@@ -14,6 +14,11 @@ import warnings
 import datetime
 from collections import OrderedDict
 
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    ZoneInfo = None  # type: ignore[misc, assignment]
+
 import pandas as pd
 import yfinance as yf
 import matplotlib
@@ -215,6 +220,210 @@ def _load_previous_signals(signal_history_path: str):
         return {k: _normalize_signal_value(v) for k, v in raw.items()}
     except Exception:
         return {}
+
+
+def _calendar_today_iso(tz_name: str) -> str:
+    if ZoneInfo is not None:
+        try:
+            return datetime.datetime.now(ZoneInfo(tz_name)).date().isoformat()
+        except Exception:
+            pass
+    return datetime.datetime.now().date().isoformat()
+
+
+def _minimal_tickers_for_history(matches: dict) -> dict:
+    out: dict[str, dict] = {}
+    for k, v in matches.items():
+        if isinstance(v, dict):
+            out[k] = {"entry": v.get("entry", "-")}
+        else:
+            out[k] = {"entry": str(v)}
+    return out
+
+
+def _load_signals_by_date(path: str) -> dict:
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_signals_by_date(path: str, hist: dict) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(hist, f, ensure_ascii=False, indent=2)
+
+
+def _migrate_signals_history_from_last_run(
+    history: dict, signal_history_path: str, today_iso: str
+) -> dict:
+    if history:
+        return history
+    if not os.path.isfile(signal_history_path):
+        return history
+    try:
+        with open(signal_history_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        raw = data.get("tickers") or {}
+        if not raw:
+            return history
+        saved_at = (data.get("saved_at") or "")[:10]
+        if len(saved_at) != 10 or saved_at >= today_iso:
+            return history
+        history[saved_at] = {"tickers": _minimal_tickers_for_history(raw)}
+    except Exception:
+        pass
+    return history
+
+
+def _prev_signals_strictly_before_date(history: dict, today_iso: str) -> tuple[dict, str | None]:
+    prior = [d for d in history.keys() if isinstance(d, str) and len(d) == 10 and d < today_iso]
+    if not prior:
+        return {}, None
+    bd = max(prior)
+    raw = (history.get(bd) or {}).get("tickers") or {}
+    return {k: _normalize_signal_value(v) for k, v in raw.items()}, bd
+
+
+def _prune_signals_history(hist: dict, today_iso: str, keep_days: int = 400) -> None:
+    try:
+        t0 = datetime.date.fromisoformat(today_iso)
+    except ValueError:
+        return
+    cutoff = (t0 - datetime.timedelta(days=keep_days)).isoformat()
+    for k in list(hist.keys()):
+        if isinstance(k, str) and len(k) == 10 and k < cutoff:
+            del hist[k]
+
+
+def _load_diff_daily_log(path: str) -> list:
+    if not os.path.isfile(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            log = json.load(f)
+        return log if isinstance(log, list) else []
+    except Exception:
+        return []
+
+
+def _save_diff_daily_log(path: str, log: list) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(log, f, ensure_ascii=False, indent=2)
+
+
+def _load_rank_by_date(path: str) -> dict:
+    if not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _save_rank_by_date(path: str, hist: dict) -> None:
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(hist, f, ensure_ascii=False, indent=2)
+
+
+def _prune_rank_by_date(hist: dict, today_iso: str, keep_days: int = 400) -> None:
+    try:
+        t0 = datetime.date.fromisoformat(today_iso)
+    except ValueError:
+        return
+    cutoff = (t0 - datetime.timedelta(days=keep_days)).isoformat()
+    for k in list(hist.keys()):
+        if isinstance(k, str) and len(k) == 10 and k < cutoff:
+            del hist[k]
+
+
+def _best_rank_snapshot_on_or_before(rank_hist: dict, cutoff_iso: str) -> tuple[str | None, dict[str, int]]:
+    """cutoff_iso 이전(포함) 날짜 중 가장 최근 저장분의 ticker→순위."""
+
+    dates = [d for d in rank_hist.keys() if isinstance(d, str) and len(d) == 10 and d <= cutoff_iso]
+    if not dates:
+        return None, {}
+    dmax = max(dates)
+    raw = rank_hist.get(dmax) or {}
+    out: dict[str, int] = {}
+    for k, v in raw.items():
+        ks = str(k)
+        try:
+            out[ks] = int(v)
+        except (TypeError, ValueError):
+            continue
+    return dmax, out
+
+
+def _fmt_rank_delta(prev_rank: int | None, curr_rank: int | None) -> str:
+    """이전 순위 대비 변화 (+숫자=순위 상승, 음수=하락). 데이터 없으면 —."""
+
+    if prev_rank is None or curr_rank is None:
+        return "—"
+    try:
+        pr = int(prev_rank)
+        cr = int(curr_rank)
+    except (TypeError, ValueError):
+        return "—"
+    d = pr - cr
+    if d == 0:
+        return "0"
+    return f"+{d}" if d > 0 else str(d)
+
+
+def _attach_rank_deltas_to_rows(
+    rows: list,
+    rank_hist_before_today: dict,
+    today_iso: str,
+) -> dict[str, str | None]:
+    """각 행에 rank_delta_1d / 3d / 6d 문자열 부여. 참조 스냅샷 일자 메타 반환."""
+
+    meta: dict[str, str | None] = {}
+    for r in rows:
+        r["rank_delta_1d"] = "—"
+        r["rank_delta_3d"] = "—"
+        r["rank_delta_6d"] = "—"
+
+    try:
+        t0 = datetime.date.fromisoformat(today_iso)
+    except ValueError:
+        return meta
+
+    offsets = (("1d", 1), ("3d", 3), ("6d", 6))
+    snaps: dict[str, tuple[str | None, dict[str, int]]] = {}
+    for label, days in offsets:
+        cutoff = (t0 - datetime.timedelta(days=days)).isoformat()
+        d_snap, mp = _best_rank_snapshot_on_or_before(rank_hist_before_today, cutoff)
+        snaps[label] = (d_snap, mp)
+        meta[f"snapshot_{label}"] = d_snap
+
+    for r in rows:
+        tid = str(r.get("ticker") or "")
+        try:
+            cr = int(r.get("rank"))
+        except (TypeError, ValueError):
+            cr = None
+        for label, _days in offsets:
+            _, mp = snaps[label]
+            pr = mp.get(tid) if mp and tid else None
+            r[f"rank_delta_{label}"] = _fmt_rank_delta(pr, cr)
+
+    return meta
+
+
+def _upsert_daily_diff_log(path: str, entry: dict) -> list:
+    log = _load_diff_daily_log(path)
+    sd = entry.get("snapshot_date")
+    log = [e for e in log if e.get("snapshot_date") != sd]
+    log.append(entry)
+    log = log[-60:]
+    _save_diff_daily_log(path, log)
+    return log
 
 
 def _build_diff_lists(prev: dict, new_matches: dict):
@@ -621,7 +830,6 @@ def run_kospi_export(base_dir: str) -> dict:
     _setup_font(base_dir)
 
     signal_history_path = os.path.join(state_dir, "last_run_signals.json")
-    prev_signals = _load_previous_signals(signal_history_path)
 
     chart_limit_raw = os.environ.get("MAX_TREND_CHARTS", "50").strip()
     chart_limit = 50 if chart_limit_raw == "" else int(chart_limit_raw)
@@ -709,8 +917,37 @@ def run_kospi_export(base_dir: str) -> dict:
             except OSError:
                 pass
 
-    last_diff_added, last_diff_removed = _build_diff_lists(prev_signals, new_matches)
     last_analysis_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    today_iso = _calendar_today_iso("Asia/Seoul")
+    rank_by_date_path = os.path.join(state_dir, "rank_by_date.json")
+    rank_hist = _load_rank_by_date(rank_by_date_path)
+    rank_hist_before_today = {k: v for k, v in rank_hist.items() if k != today_iso}
+
+    signals_by_date_path = os.path.join(state_dir, "signals_by_date.json")
+    diff_daily_log_path = os.path.join(state_dir, "diff_daily_log.json")
+
+    history = _load_signals_by_date(signals_by_date_path)
+    history = _migrate_signals_history_from_last_run(history, signal_history_path, today_iso)
+    prev_signals, diff_baseline_date = _prev_signals_strictly_before_date(history, today_iso)
+    last_diff_added, last_diff_removed = _build_diff_lists(prev_signals, new_matches)
+
+    history[today_iso] = {
+        "tickers": _minimal_tickers_for_history(new_matches),
+        "saved_at": last_analysis_time,
+    }
+    _prune_signals_history(history, today_iso)
+    _save_signals_by_date(signals_by_date_path, history)
+
+    diff_log = _upsert_daily_diff_log(
+        diff_daily_log_path,
+        {
+            "snapshot_date": today_iso,
+            "baseline_date": diff_baseline_date,
+            "last_diff_added": last_diff_added,
+            "last_diff_removed": last_diff_removed,
+        },
+    )
+    diff_past_days = [e for e in diff_log if e.get("snapshot_date") != today_iso][-15:]
 
     with open(signal_history_path, "w", encoding="utf-8") as f:
         json.dump(
@@ -725,9 +962,9 @@ def run_kospi_export(base_dir: str) -> dict:
         m["rank"] = int(i)
     sector_score_table = sector_score_table_from_matches(matches)
     sector_summary = [(r["sector"], r["count"]) for r in sector_score_table]
-    _default_top = chart_limit if chart_limit > 0 else 50
+    _default_summary = 30
     summary_table_rows = int(
-        (os.environ.get("TOP_SUMMARY_ROWS", str(_default_top)).strip() or str(_default_top))
+        (os.environ.get("TOP_SUMMARY_ROWS", str(_default_summary)).strip() or str(_default_summary))
     )
     summary_table_rows = max(1, summary_table_rows)
     top_table = matches[:summary_table_rows]
@@ -736,6 +973,12 @@ def run_kospi_export(base_dir: str) -> dict:
         tid = r.get("ticker")
         if tid and tid in tr:
             r["rank"] = tr[tid]
+    rank_delta_meta = _attach_rank_deltas_to_rows(top_table, rank_hist_before_today, today_iso)
+
+    rank_hist[today_iso] = {str(t): int(new_matches[t]["rank"]) for t in new_matches}
+    _prune_rank_by_date(rank_hist, today_iso)
+    _save_rank_by_date(rank_by_date_path, rank_hist)
+
     sector_blocks = sector_blocks_charts_only(matches)
 
     payload = {
@@ -749,10 +992,15 @@ def run_kospi_export(base_dir: str) -> dict:
         "top_table": top_table,
         "last_diff_added": last_diff_added,
         "last_diff_removed": last_diff_removed,
+        "diff_snapshot_date": today_iso,
+        "diff_baseline_date": diff_baseline_date,
+        "diff_past_days": diff_past_days,
+        "rank_delta_meta": rank_delta_meta,
         "scoring": {
             "description": "코스피 섹터 고정 루트. 2단계: 주가>MA150>MA200, MA200 20일 우상, 당일 MA50 상승·종가>MA50. 거래량·Vol/지수는 Yahoo(^KS11) OHLCV만 사용. 총점=최근진입+RS+거래량+Vol/지수+시총·영업 가점(KOSPI_BONUS_*).",
             "max_trend_charts": chart_limit,
             "summary_table_rows": summary_table_rows,
+            "rank_delta_note": "Δ순위: 저장된 순위 스냅샷 대비(당일−N일 이전 시점 이전 가장 최근 저장일). +는 순위 상승(숫자 감소 방향).",
         },
     }
 
@@ -761,5 +1009,6 @@ def run_kospi_export(base_dir: str) -> dict:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
     print(f"[{last_analysis_time}] 완료: 2단계 {len(new_matches)}개 → {results_path}")
-    print(f"  신규: {len(last_diff_added)} / 탈락: {len(last_diff_removed)}")
+    _bd = diff_baseline_date or "(저장 이력 없음)"
+    print(f"  신규/탈락 ({_bd} → {today_iso}): {len(last_diff_added)} / {len(last_diff_removed)}")
     return payload

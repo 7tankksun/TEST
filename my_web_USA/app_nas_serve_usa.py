@@ -173,6 +173,9 @@ def index():
             "top_table": [],
             "last_diff_added": [],
             "last_diff_removed": [],
+            "diff_snapshot_date": None,
+            "diff_baseline_date": None,
+            "diff_past_days": [],
             "scoring": None,
         }
     v = _prepare_index_view(data)
@@ -191,6 +194,9 @@ def index():
         candidate_count=data.get("candidate_count", 0),
         last_diff_added=data.get("last_diff_added", []),
         last_diff_removed=data.get("last_diff_removed", []),
+        diff_snapshot_date=data.get("diff_snapshot_date"),
+        diff_baseline_date=data.get("diff_baseline_date"),
+        diff_past_days=data.get("diff_past_days") or [],
         show_rerun=False,
         scoring=data.get("scoring"),
         footer_note=(

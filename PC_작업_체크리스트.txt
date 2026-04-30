@@ -1,0 +1,21 @@
+로컬 PC 작업 후 확인 (Synology Drive 동기화 가정)
+==================================================
+
+□ 코드 수정 저장
+
+□ 주식·USA 웹 결과 갱신이 필요하면
+    run_all_export.cmd 실행 (또는 kospi / kosdaq / my_web_USA 개별)
+
+□ OPIC 자료(docx) 바꿨으면
+    cd opic\opic-study-site
+    node scripts\build-content.mjs
+
+□ NAS 에서 서비스가 “파일만 읽는” 타입이면
+    Drive 동기화 완료까지 잠깐 대기 후 브라우저 새로고침
+
+□ Docker 이미지를 쓰는 서비스(streamlit, portal 빌드 등)는
+    코드만 바꿨을 때: 볼륨 마운트면 컨테이너 재시작 선택
+    Dockerfile 바꿨을 때: NAS 에서 이미지 다시 build
+
+□ Git 반영이 필요하면
+    git add / commit / push

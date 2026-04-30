@@ -140,7 +140,7 @@ def _prepare_index_view(data: dict) -> dict:
     if not sector_score_table:
         sector_score_table = _sector_score_table_from_matches(matches)
     if not top_table:
-        n = int((data.get("scoring") or {}).get("summary_table_rows") or 50)
+        n = int((data.get("scoring") or {}).get("summary_table_rows") or 30)
         top_table = matches[: max(1, n)]
     sector_blocks = data.get("sector_blocks") or _sector_blocks_charts_only(matches)
     sector_summary = [(r["sector"], r["count"]) for r in sector_score_table]
@@ -187,6 +187,10 @@ def index():
             "top_table": [],
             "last_diff_added": [],
             "last_diff_removed": [],
+            "diff_snapshot_date": None,
+            "diff_baseline_date": None,
+            "diff_past_days": [],
+            "rank_delta_meta": {},
             "scoring": None,
         }
     v = _prepare_index_view(data)
@@ -205,8 +209,12 @@ def index():
         candidate_count=data.get("candidate_count", 0),
         last_diff_added=data.get("last_diff_added", []),
         last_diff_removed=data.get("last_diff_removed", []),
+        diff_snapshot_date=data.get("diff_snapshot_date"),
+        diff_baseline_date=data.get("diff_baseline_date"),
+        diff_past_days=data.get("diff_past_days") or [],
         show_rerun=False,
         scoring=data.get("scoring"),
+        rank_delta_meta=data.get("rank_delta_meta") or {},
         footer_note=(
             "로컬 kosdaq/run_local_export.py → Drive 동기화 후 새로고침. "
             f"JSON: {json_path or '(아직 없음 — 동기화 대기)'} | charts: {roots_display}"

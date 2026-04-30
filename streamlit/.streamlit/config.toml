@@ -1,0 +1,12 @@
+# NAS/Docker: 반드시 모든 인터페이스에 바인딩 (기본 localhost만이면 포트 매핑이 안 먹음)
+# HTTPS 역프록시(life.도메인) 뒤: 프록시가 Upgrade 헤더를 넘겨줘야 함. 아래는 흔한 호환 설정.
+[server]
+address = "0.0.0.0"
+port = 8509
+headless = true
+enableCORS = false
+enableXsrfProtection = false
+enableWebsocketCompression = false
+
+[browser]
+gatherUsageStats = false

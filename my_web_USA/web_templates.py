@@ -127,8 +127,9 @@ INDEX_HTML = """
         {% endif %}
 
         <div class="diff">
+          <p class="sec" style="margin:0 0 10px 0">신규·탈락은 <b>실행 시각</b>이 아니라 <b>저장된 직전 일자</b> 스냅샷과 비교합니다. (당일 재실행해도 동일){% if diff_snapshot_date %} 스냅샷 일자: <b>{{ diff_snapshot_date }}</b>{% endif %}{% if diff_baseline_date %} · 비교 기준(직전 저장일): <b>{{ diff_baseline_date }}</b>{% endif %}</p>
           <div class="diff-box add">
-            <h2>신규 포착 (직전 실행 대비)</h2>
+            <h2>신규 포착 (직전 저장일 대비)</h2>
             {% if last_diff_added %}
             <ul>{% for x in last_diff_added %}
               <li><b>{{ x.name }}</b> {{ x.ticker }} — {{ x.sector }}{% if 'rank' in x and 'score' in x %} · #{{ x.rank }} / {{ "%.1f"|format(x.score) }}점{% endif %} · 진입 {{ x.entry }}{% if 'rs_ratio' in x and x.rs_ratio is not none %} · RS {{ "%.2f"|format(x.rs_ratio) }}{% endif %}{% if 'vol_20_vs_prev20' in x and x.vol_20_vs_prev20 is not none %} · Vol20 {{ "%.2f"|format(x.vol_20_vs_prev20) }}×{% endif %}</li>
@@ -136,7 +137,7 @@ INDEX_HTML = """
             {% else %}<p>없음</p>{% endif %}
           </div>
           <div class="diff-box drop">
-            <h2>탈락 (직전에는 있었으나 이번엔 없음)</h2>
+            <h2>탈락 (직전 저장일에는 있었으나 이번 스냅샷에는 없음)</h2>
             {% if last_diff_removed %}
             <ul>{% for x in last_diff_removed %}
               <li><b>{{ x.name }}</b> {{ x.ticker }} — {{ x.sector }} (이전 진입 {{ x.entry }})</li>
@@ -144,6 +145,32 @@ INDEX_HTML = """
             {% else %}<p>없음</p>{% endif %}
           </div>
         </div>
+
+        {% if diff_past_days %}
+        <h2 class="chart-section-title">과거 일자별 신규·탈락</h2>
+        {% for day in diff_past_days|reverse %}
+        <div class="diff diff-past-day" style="margin-bottom:1.5em">
+          <h3 style="margin-bottom:0.5em">{{ day.snapshot_date }}{% if day.baseline_date %} · 기준일 {{ day.baseline_date }}{% else %} · 기준일 없음(첫 이력){% endif %}
+            <span style="font-weight:normal;color:#555"> — 신규 {{ day.last_diff_added|length }} / 탈락 {{ day.last_diff_removed|length }}</span></h3>
+          <div class="diff-box add">
+            <h4 style="margin:0.4em 0">신규</h4>
+            {% if day.last_diff_added %}
+            <ul>{% for x in day.last_diff_added %}
+              <li><b>{{ x.name }}</b> {{ x.ticker }} — {{ x.sector }}{% if 'rank' in x and 'score' in x %} · #{{ x.rank }} / {{ "%.1f"|format(x.score) }}점{% endif %} · 진입 {{ x.entry }}{% if 'rs_ratio' in x and x.rs_ratio is not none %} · RS {{ "%.2f"|format(x.rs_ratio) }}{% endif %}{% if 'vol_20_vs_prev20' in x and x.vol_20_vs_prev20 is not none %} · Vol20 {{ "%.2f"|format(x.vol_20_vs_prev20) }}×{% endif %}</li>
+            {% endfor %}</ul>
+            {% else %}<p>없음</p>{% endif %}
+          </div>
+          <div class="diff-box drop">
+            <h4 style="margin:0.4em 0">탈락</h4>
+            {% if day.last_diff_removed %}
+            <ul>{% for x in day.last_diff_removed %}
+              <li><b>{{ x.name }}</b> {{ x.ticker }} — {{ x.sector }} (이전 진입 {{ x.entry }})</li>
+            {% endfor %}</ul>
+            {% else %}<p>없음</p>{% endif %}
+          </div>
+        </div>
+        {% endfor %}
+        {% endif %}
 
         {% if sector_blocks %}
         <h2 class="chart-section-title">추세 차트 (총점 상위, 섹터별)</h2>

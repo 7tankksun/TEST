@@ -21,5 +21,6 @@ services:
       - PORT=8500
       # - PORTAL_BASE_URL=https://junna3d.i234.me
       # - OPIC_URL=https://opic.junna3d.i234.me
+      # - STREAMLIT_URL=http://192.168.x.x:8509
     # Dockerfile CMD = gunicorn --reload
     # requirements 바꾼 뒤만: docker compose build --no-cache

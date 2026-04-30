@@ -1,0 +1,14 @@
+# NAS 예시: 이 폴더에서 docker compose -f docker-compose.nas.yml up -d
+services:
+  streamlit-life:
+    build: .
+    container_name: streamlit-life
+    ports:
+      - "8509:8509"
+    environment:
+      # 선택: OpenAI 에이전트 (없으면 규칙 기반만)
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      # 선택: GitHub Search API 분당 한도 완화 (classic PAT, public read)
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+    restart: unless-stopped

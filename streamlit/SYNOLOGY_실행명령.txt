@@ -1,0 +1,25 @@
+Synology Container Manager — 실행 명령 (복사용)
+================================================
+
+■ 방법 1) 이미지가 python:latest (또는 streamlit 미설치) 일 때 — 아래 전체를 실행 명령 한 칸에 그대로 붙여넣기
+
+sh -c "python3 -m pip install --no-cache-dir -r /app/requirements.txt && exec python3 -m streamlit run /app/app.py --server.address 0.0.0.0 --server.port 8509 --server.headless true --server.enableCORS false --server.enableXsrfProtection false --browser.gatherUsageStats false"
+
+  - 볼륨: 호스트 .../streamlit  →  컨테이너 /app  (app.py, requirements.txt 가 /app 에 보여야 함)
+  - 포트: 8509 → 8509
+  - "streamlit" 한 단어만 넣지 말 것 (PATH 에 없음)
+
+
+■ 방법 2) 권장 — Dockerfile 로 만든 이미지 쓸 때
+
+  1) Container Manager → 이미지 → 추가 → Dockerfile 로 빌드
+     → 경로: /volume1/docker/local/streamlit (Dockerfile 있는 폴더)
+     → 태그 예: streamlit-life:latest
+
+  2) 그 이미지로 컨테이너 생성, 포트·볼륨만 설정
+
+  3) 실행 명령: 비워 둠 (Dockerfile 의 ENTRYPOINT 가 실행함)
+
+  ※ 실행 명령에 streamlit run ... 을 또 넣으면 꼬일 수 있음 → 비우기
+
+  ※ 주식 캔들·CSV는 app.py 안 「📊 My Dashboard」탭 + 사이드바 「📈 주식 분석」에서 사용.

@@ -140,7 +140,7 @@ def _prepare_index_view(data: dict) -> dict:
     if not sector_score_table:
         sector_score_table = _sector_score_table_from_matches(matches)
     if not top_table:
-        n = int((data.get("scoring") or {}).get("summary_table_rows") or 50)
+        n = int((data.get("scoring") or {}).get("summary_table_rows") or 30)
         top_table = matches[: max(1, n)]
     sector_blocks = data.get("sector_blocks") or _sector_blocks_charts_only(matches)
     sector_summary = [(r["sector"], r["count"]) for r in sector_score_table]
@@ -188,7 +188,11 @@ def index():
             "top_table": [],
             "last_diff_added": [],
             "last_diff_removed": [],
+            "diff_snapshot_date": None,
+            "diff_baseline_date": None,
+            "diff_past_days": [],
             "scoring": None,
+            "rank_delta_meta": {},
         }
     v = _prepare_index_view(data)
     roots_display = ", ".join(chart_roots) if chart_roots else "(charts 폴더 없음)"
@@ -206,6 +210,10 @@ def index():
         candidate_count=data.get("candidate_count", 0),
         last_diff_added=data.get("last_diff_added", []),
         last_diff_removed=data.get("last_diff_removed", []),
+        diff_snapshot_date=data.get("diff_snapshot_date"),
+        diff_baseline_date=data.get("diff_baseline_date"),
+        diff_past_days=data.get("diff_past_days") or [],
+        rank_delta_meta=data.get("rank_delta_meta") or {},
         show_rerun=False,
         scoring=data.get("scoring"),
         footer_note=(
