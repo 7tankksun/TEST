@@ -3,3 +3,15 @@ __pycache__
 .git
 .env
 *.md
+
+# ── NAS 재시작·재빌드 시 DB/Δ값 원복 방지 ─────────────────────
+# PC Job + Synology Drive 동기화로만 채워지는 경로는 이미지에 넣지 않는다.
+# (COPY 결과물이 포함되면 컨테이너 새로 받을 때마다 오래된 results_web.json이 덮임)
+tema_stage2_data/
+tema_cache_data/
+tema_surge_data/
+**/state/
+ML/results/
+
+# 개별 결과 JSON(PC/배치가 갱신)
+**/results_web.json

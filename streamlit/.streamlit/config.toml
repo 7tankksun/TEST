@@ -6,7 +6,16 @@ port = 8509
 headless = true
 enableCORS = false
 enableXsrfProtection = false
-enableWebsocketCompression = false
+# 역프록시·모바일에서 WS 트래픽 압축(대역폭·체감 속도에 유리). 문제 시만 false.
+enableWebsocketCompression = true
+# NAS 운영: 파일 감시로 불필요한 rerun 방지. 로컬 개발만 true 권장.
+runOnSave = false
+# Drive 마운트 등 파일이 많을 때 감시가 CPU·지연을 유발 → NAS 운영은 none 권장.
+fileWatcherType = "none"
+
+[runner]
+# 위젯 조작 시 rerun을 빨리 처리(기본도 true인 경우가 많음).
+fastReruns = true
 
 [browser]
 gatherUsageStats = false

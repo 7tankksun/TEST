@@ -1,0 +1,82 @@
+프로젝트 작업 컨텍스트 (자동 생성/수동 보완 가능)
+최종 업데이트: 2026-05-01 21:13~21:30 KST
+
+[1] 운영 구조(중요)
+- Streamlit 앱 서버는 NAS에서 app.py로 상시 실행한다.
+- docker-compose.nas.yml 은 호스트 streamlit 루트 전체를 /app 에 마운트한다 → PC(Synology Drive)에서 동기화한 app.py·모듈이 이미지 재빌드 없이 반영된다(requirements 변경 시는 pip/재빌드).
+- 로컬 PC는 데이터 생성/갱신 배치만 실행한다.
+- 즉, 로컬에서 app.py를 띄우지 말고 데이터 산출물(kospi/kosdaq/tema_stage2/apt/edu)만 갱신한다.
+
+[2] 로컬 실행 원칙
+- 기본 배치: run_portal_batch.py (또는 run_portal_batch.cmd)
+- 주요 출력:
+  - kospi_data/results_web.json
+  - kosdaq_data/results_web.json
+  - tema_stage2_data/results_web.json
+  - apt_data/results_web.json (조건부/하루 1회 정책)
+  - edu_data/* (교육 데이터)
+- NAS 앱은 위 산출물을 읽어 화면에 반영한다.
+
+[3] 최근 핵심 변경사항
+- candidates_data.py:
+  - 긴 섹터 문자열을 화면용 표준 15개 카테고리로 정규화.
+  - 형식: "코스피/코스닥 - 카테고리"
+  - KRX 기준 데이터(ML/kospi_kosdaq_all.csv)로 종목명/시장 보정 후 적용.
+- 섹터 카테고리(15개):
+  1) 반도체/AI
+  2) IT부품/디스플레이장비
+  3) 2차전지/소재
+  4) 바이오/의료
+  5) 자동차/부품
+  6) 기계/로봇/방산
+  7) 화학/소재
+  8) 철강/금속
+  9) 건설/건자재
+  10) 금융/지주
+  11) 유통/소비재
+  12) 통신/미디어/엔터
+  13) 에너지/전력/친환경
+  14) 운송/물류
+  15) 음식료/농수산
+
+[4] KRX 기준 데이터 참고
+- CSV: ML/kospi_kosdaq_all.csv
+- XLSX: ML/data_0840_20260501.xlsx
+  - 컬럼: 표준코드, 단축코드, 한글 종목명, 한글 종목약명, 영문 종목명, 상장일, 시장구분, 증권구분, 소속부, 주식종류, 액면가, 상장주식수
+  - 총 2882행, 12컬럼 확인
+- 전처리 시 우선 사용 기준:
+  - 단축코드 + 시장구분(KOSPI/KOSDAQ)
+  - 주식종류 == 보통주
+
+[5] 실행 시 주의 사항
+- Windows 콘솔 인코딩 이슈로 run_portal_batch.py의 이모지 출력(✅/❌)에서 cp949 에러가 날 수 있다.
+- 필요 시 UTF-8 모드로 실행:
+  - py -3 -X utf8 run_portal_batch.py
+  - 또는 PYTHONIOENCODING=utf-8 설정 후 실행
+
+[6] 다음 세션 시작 체크리스트(에이전트용)
+1. 이 파일(PROJECT_WORK_CONTEXT.txt) 먼저 읽기.
+2. 사용자 요청이 "화면 반영"이면 로컬에서 데이터 배치부터 실행.
+3. NAS app.py는 건드리지 않기(로컬에서 streamlit run 금지).
+4. 배치 성공/실패 로그와 산출물 갱신 시각 확인 후 사용자에게 보고.
+
+[7] 신규 캐시 기반 고속 파이프라인(2026-05-01 추가)
+- collector_hourly.py
+  - 유니버스 기준: ML/data_0840_20260501.xlsx + 보통주
+  - 저장: tema_cache_data/cache/ohlcv_daily.parquet
+  - 메타: tema_cache_data/cache/universe_meta.json
+- stage2_from_cache.py
+  - 외부 호출 없이 parquet 캐시만 읽어 Stage2 산출
+  - 상태 저장: tema_cache_data/state/stage2_state.json
+  - 결과 저장: tema_cache_data/results_web.json
+  - 신규/탈락 완충: hold_confirm(기본 2회 연속)
+- 운영용 별칭(스케줄/수동 실행 분리):
+  - 스케줄 수집: scheduled_ohlcv_collector.py / run_scheduled_ohlcv_collector.cmd
+  - 빠른 검증: fast_stage2_validator.py / run_fast_stage2_validator.cmd
+
+[8] 폴더 정리 상태
+- 테스트/레거시 혼동 폴더 정리 완료:
+  - 삭제: tema_cache_data_test/, theme_stocks_data/, __pycache__/ (root)
+- 현재 구조 요약 문서:
+  - FOLDER_STRUCTURE_TEMA.txt
+

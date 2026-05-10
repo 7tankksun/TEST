@@ -48,6 +48,15 @@ def get_sector(ticker: str) -> str:
     return (CANDIDATES.get(ticker) or ["", "미분류"])[1]
 
 
+def _universe_counts_by_sector() -> dict[str, int]:
+    """후보 유니버스(CANDIDATES) 기준 섹터별 종목 수."""
+    out: dict[str, int] = {}
+    for tkr in CANDIDATES:
+        s = get_sector(tkr)
+        out[s] = out.get(s, 0) + 1
+    return out
+
+
 def _normalize_df_columns(df: pd.DataFrame) -> pd.DataFrame:
     if isinstance(df.columns, pd.MultiIndex):
         try:
@@ -100,7 +109,8 @@ def _index_stage2_status_from_ohlcv_df(
 ) -> dict:
     """
     지수(개별주와 동일) 2단계: Close>MA150>MA200, MA200 20봉 우상, MA50 상승(10봉), 종가>MA50.
-    스탠·와인슈타인: 시장(지수)이 2단계일 때가 중요.
+    스탠 와인스타인(Stan Weinstein) 관점에서는 매수 검토 시 (1) 시장 2단계 (2) 강한 섹터
+    (3) 개별 종목 2단계가 함께 맞는 것이 이상적이다.
     """
     need = 200
     if df is None or df.empty or len(df) < need:
@@ -145,16 +155,16 @@ def _index_stage2_status_from_ohlcv_df(
     as_of = str(ts.date()) if hasattr(ts, "date") else str(ts)
 
     if is_s2:
-        headline = f"{display_name} ({index_ticker}): 2단계 상승 — 시장이 스테이지2 (포지션·진입에 유리)"
+        headline = f"{display_name} : 2단계 상승 — 시장이 스테이지2 (포지션·진입에 유리)"
         tone = "stage2"
     elif last < m200:
-        headline = f"{display_name} ({index_ticker}): 2단계 아님 — 약세(종가<MA200), 상승 투자엔 경계"
+        headline = f"{display_name} : 2단계 아님 — 약세(종가<MA200), 상승 투자엔 경계"
         tone = "bear"
     elif last < m50:
-        headline = f"{display_name} ({index_ticker}): 2단계 아님 — 단기 둔화(종가<MA50)"
+        headline = f"{display_name} : 2단계 아님 — 단기 둔화(종가<MA50)"
         tone = "caution"
     else:
-        headline = f"{display_name} ({index_ticker}): 2단계 아님 — 조정·눌림/횡보 등(지수 2단계 조건 미충족)"
+        headline = f"{display_name} : 2단계 아님 — 조정·눌림/횡보 등(지수 2단계 조건 미충족)"
         tone = "weak"
 
     return {
@@ -279,13 +289,23 @@ def _migrate_signals_history_from_last_run(
     return history
 
 
-def _prev_signals_strictly_before_date(history: dict, today_iso: str) -> tuple[dict, str | None]:
+def _prev_signals_for_diff(history: dict, today_iso: str) -> tuple[dict, str | None]:
+    """신규·탈락 비교 기준.
+
+    - 우선 당일보다 이른 날짜 중 가장 최근 스냅샷(통상 전일 이전).
+    - 없으면 `signals_by_date.json` 안의 당일 스냅샷 — 같은 날 재실행·재배포 후에도 직전 실행분과 비교 가능.
+      (오늘 키만 있어도 `d < today` 만으로는 기준을 못 찾아 항상 '첫 이력'이 되던 문제를 막음)
+    """
     prior = [d for d in history.keys() if isinstance(d, str) and len(d) == 10 and d < today_iso]
-    if not prior:
-        return {}, None
-    bd = max(prior)
-    raw = (history.get(bd) or {}).get("tickers") or {}
-    return {k: _normalize_signal_value(v) for k, v in raw.items()}, bd
+    if prior:
+        bd = max(prior)
+        raw = (history.get(bd) or {}).get("tickers") or {}
+        return {k: _normalize_signal_value(v) for k, v in raw.items()}, bd
+    bucket = history.get(today_iso)
+    raw = (bucket.get("tickers") or {}) if isinstance(bucket, dict) else {}
+    if raw:
+        return {k: _normalize_signal_value(v) for k, v in raw.items()}, today_iso
+    return {}, None
 
 
 def _prune_signals_history(hist: dict, today_iso: str, keep_days: int = 400) -> None:
@@ -416,6 +436,41 @@ def _attach_rank_deltas_to_rows(
     return meta
 
 
+def _attach_sector_rank_deltas(
+    rows: list,
+    rank_hist_before_today: dict,
+    today_iso: str,
+) -> dict[str, str | None]:
+    """섹터 표 각 행에 rank_delta_1d/3d/6d (섹터 간 순위·종목수 기준 순위 변화)."""
+    meta: dict[str, str | None] = {}
+    for r in rows:
+        r["rank_delta_1d"] = "—"
+        r["rank_delta_3d"] = "—"
+        r["rank_delta_6d"] = "—"
+    try:
+        t0 = datetime.date.fromisoformat(today_iso)
+    except ValueError:
+        return meta
+    offsets = (("1d", 1), ("3d", 3), ("6d", 6))
+    snaps: dict[str, tuple[str | None, dict[str, int]]] = {}
+    for label, days in offsets:
+        cutoff = (t0 - datetime.timedelta(days=days)).isoformat()
+        d_snap, mp = _best_rank_snapshot_on_or_before(rank_hist_before_today, cutoff)
+        snaps[label] = (d_snap, mp)
+        meta[f"snapshot_{label}"] = d_snap
+    for r in rows:
+        sid = str(r.get("sector") or "")
+        try:
+            cr = int(r.get("rank"))
+        except (TypeError, ValueError):
+            cr = None
+        for label, _days in offsets:
+            _, mp = snaps[label]
+            pr = mp.get(sid) if mp and sid else None
+            r[f"rank_delta_{label}"] = _fmt_rank_delta(pr, cr)
+    return meta
+
+
 def _upsert_daily_diff_log(path: str, entry: dict) -> list:
     log = _load_diff_daily_log(path)
     sd = entry.get("snapshot_date")
@@ -471,6 +526,7 @@ def _match_rows_from_detail(match_detail: dict) -> list:
                 "score_breakdown": d.get("score_breakdown") or {},
                 "bars_since_stage2_entry": d.get("bars_since_stage2_entry"),
                 "rs_ratio": d.get("rs_ratio"),
+                "ret_since_entry_pct": d.get("ret_since_entry_pct"),
                 "ret_3m_pct": d.get("ret_3m_pct"),
                 "vol_5_vs_20": d.get("vol_5_vs_20"),
                 "vol_20_vs_prev20": d.get("vol_20_vs_prev20"),
@@ -493,21 +549,37 @@ def _group_by_sector(matches: list):
     return OrderedDict(sorted(groups.items(), key=lambda kv: len(kv[1]), reverse=True))
 
 
-def sector_score_table_from_matches(matches: list) -> list:
+def sector_score_table_from_matches(
+    matches: list,
+    universe_by_sector: dict[str, int] | None = None,
+    *,
+    total_universe_n: int | None = None,
+) -> list:
+    """섹터별 Stage2 종목 수·점수 요약. 주도%(presence_pct) 분모 = 선정 후보 전체 종목 수."""
     buckets: dict[str, list[float]] = {}
     for m in matches:
         sec = (m.get("sector") or "미분류").strip() or "미분류"
         buckets.setdefault(sec, []).append(float(m.get("score") or 0))
+    uni = universe_by_sector or {}
+    tot_all = max(0, int(total_universe_n or 0))
     rows = []
-    for sec, scores in sorted(buckets.items(), key=lambda kv: -len(kv[1])):
+    for sec, scores in sorted(buckets.items(), key=lambda kv: (-len(kv[1]), kv[0])):
+        u = int(uni.get(sec) or 0)
+        cnt = len(scores)
+        presence = round(100.0 * cnt / tot_all, 2) if tot_all > 0 else None
         rows.append(
             {
                 "sector": sec,
-                "count": len(scores),
+                "count": cnt,
+                "universe_n": u,
+                "universe_total": tot_all,
+                "presence_pct": presence,
                 "avg_score": round(sum(scores) / len(scores), 2),
                 "max_score": round(max(scores), 2),
             }
         )
+    for i, r in enumerate(rows, start=1):
+        r["rank"] = i
     return rows
 
 
@@ -749,6 +821,14 @@ def _compute_kospi_match(
             ret_3m = (df["Close"].iloc[-1] / df["Close"].iloc[-60]) - 1.0
         except Exception:
             ret_3m = 0.0
+        try:
+            entry_c = float(df["Close"].iloc[ep_idx])
+            last_c = float(df["Close"].iloc[-1])
+            ret_since_entry_pct = (
+                ((last_c / entry_c) - 1.0) * 100.0 if entry_c and entry_c > 0 else 0.0
+            )
+        except Exception:
+            ret_since_entry_pct = 0.0
 
         score, score_breakdown = score_stage2_components(
             int(bars_since),
@@ -766,6 +846,7 @@ def _compute_kospi_match(
             "entry": entry_date_str,
             "bars_since_stage2_entry": int(bars_since),
             "rs_ratio": _safe_float(rs_ratio),
+            "ret_since_entry_pct": _safe_float(ret_since_entry_pct) or 0.0,
             "ret_3m_pct": _safe_float(ret_3m * 100.0) or 0.0,
             "vol_5_vs_20": _safe_float(vol_5_vs_20),
             "vol_20_vs_prev20": _safe_float(vol_20),
@@ -831,8 +912,10 @@ def run_kospi_export(base_dir: str) -> dict:
 
     signal_history_path = os.path.join(state_dir, "last_run_signals.json")
 
-    chart_limit_raw = os.environ.get("MAX_TREND_CHARTS", "50").strip()
-    chart_limit = 50 if chart_limit_raw == "" else int(chart_limit_raw)
+    # 웹 요약표 행 수(TOP_SUMMARY_ROWS)·추세 PNG 상위 종목(MAX_TREND_CHARTS) 기본 동일(미설정 시 30)
+    _default_visible_stocks = 30
+    chart_limit_raw = os.environ.get("MAX_TREND_CHARTS", str(_default_visible_stocks)).strip()
+    chart_limit = _default_visible_stocks if chart_limit_raw == "" else int(chart_limit_raw)
     if chart_limit < 0:
         chart_limit = 0
 
@@ -928,7 +1011,7 @@ def run_kospi_export(base_dir: str) -> dict:
 
     history = _load_signals_by_date(signals_by_date_path)
     history = _migrate_signals_history_from_last_run(history, signal_history_path, today_iso)
-    prev_signals, diff_baseline_date = _prev_signals_strictly_before_date(history, today_iso)
+    prev_signals, diff_baseline_date = _prev_signals_for_diff(history, today_iso)
     last_diff_added, last_diff_removed = _build_diff_lists(prev_signals, new_matches)
 
     history[today_iso] = {
@@ -960,9 +1043,23 @@ def run_kospi_export(base_dir: str) -> dict:
     matches = _match_rows_from_detail(new_matches)
     for i, m in enumerate(matches, 1):
         m["rank"] = int(i)
-    sector_score_table = sector_score_table_from_matches(matches)
+    sector_rank_by_date_path = os.path.join(state_dir, "sector_rank_by_date.json")
+    sector_rank_hist = _load_rank_by_date(sector_rank_by_date_path)
+    sector_rank_hist_before_today = {k: v for k, v in sector_rank_hist.items() if k != today_iso}
+    uni_sec = _universe_counts_by_sector()
+    sector_score_table = sector_score_table_from_matches(
+        matches, uni_sec, total_universe_n=len(CANDIDATES)
+    )
+    sector_rank_delta_meta = _attach_sector_rank_deltas(
+        sector_score_table, sector_rank_hist_before_today, today_iso
+    )
+    sector_rank_hist[today_iso] = {
+        str(r["sector"]): int(r["rank"]) for r in sector_score_table
+    }
+    _prune_rank_by_date(sector_rank_hist, today_iso)
+    _save_rank_by_date(sector_rank_by_date_path, sector_rank_hist)
     sector_summary = [(r["sector"], r["count"]) for r in sector_score_table]
-    _default_summary = 30
+    _default_summary = _default_visible_stocks
     summary_table_rows = int(
         (os.environ.get("TOP_SUMMARY_ROWS", str(_default_summary)).strip() or str(_default_summary))
     )
@@ -996,11 +1093,13 @@ def run_kospi_export(base_dir: str) -> dict:
         "diff_baseline_date": diff_baseline_date,
         "diff_past_days": diff_past_days,
         "rank_delta_meta": rank_delta_meta,
+        "sector_rank_delta_meta": sector_rank_delta_meta,
         "scoring": {
             "description": "코스피 섹터 고정 루트. 2단계: 주가>MA150>MA200, MA200 20일 우상, 당일 MA50 상승·종가>MA50. 거래량·Vol/지수는 Yahoo(^KS11) OHLCV만 사용. 총점=최근진입+RS+거래량+Vol/지수+시총·영업 가점(KOSPI_BONUS_*).",
             "max_trend_charts": chart_limit,
             "summary_table_rows": summary_table_rows,
             "rank_delta_note": "Δ순위: 저장된 순위 스냅샷 대비(당일−N일 이전 시점 이전 가장 최근 저장일). +는 순위 상승(숫자 감소 방향).",
+            "sector_rank_delta_note": "섹터 Δ: 해당 섹터가 'Stage2 종목 수' 기준 섹터 랭킹에서 얼마나 올랐/내렸는지(종목 순위와 동일 규칙). 주도% = (섹터 Stage2 수)÷(선정 후보 전체 종목 수)×100.",
         },
     }
 

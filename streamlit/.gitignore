@@ -1,0 +1,19 @@
+.env.nas
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# 런타임·대용량 (Claude/원격 저장소에 올리지 않음)
+fred_api_key.txt
+daily_stock_journal.json
+kospi_data/
+kosdaq_data/
+etf_data/
+apt_data/
+edu_data/
+opic_data/
+tema_cache_data/
+tema_stage2_data/
+*.png

@@ -1,4 +1,11 @@
-# NAS 예시: 이 폴더에서 docker compose -f docker-compose.nas.yml up -d
+# NAS: streamlit 디렉터리에서
+#   copy env.nas.example .env.nas && 편집 후
+#   docker compose --env-file .env.nas -f docker-compose.nas.yml up -d --build
+#
+# ⚠ 호스트 루트 전체를 /app 에 마운트 → PC(Synology Drive)에서 동기화한 app.py·모듈이 그대로 반영됨.
+# ⚠ requirements.txt 변경 후에는 컨테이너 안에서 pip install 또는 이미지 재빌드 필요.
+# ⚠ Dockerfile ENTRYPOINT 사용 권장. DSM에서 매번 pip install 하는 실행 명령은 불필요.
+
 services:
   streamlit-life:
     build: .
@@ -6,9 +13,10 @@ services:
     ports:
       - "8509:8509"
     environment:
-      # 선택: OpenAI 에이전트 (없으면 규칙 기반만)
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
-      # 선택: GitHub Search API 분당 한도 완화 (classic PAT, public read)
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+    volumes:
+      # Synology Drive 로 동기되는 streamlit **프로젝트 루트** 전체 → /app (코드 + kospi_data 등 하위 폴더 포함)
+      - ${STREAMLIT_HOST_ROOT}:/app
     restart: unless-stopped

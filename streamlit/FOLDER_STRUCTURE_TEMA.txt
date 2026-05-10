@@ -1,0 +1,51 @@
+Tema Pipeline Folder Guide
+Last Updated: 2026-05-01
+
+1) Core Rule
+- NAS runs `app.py`.
+- Local PC only updates data and runs fast validation.
+
+2) Main Data Folders
+- `kospi_data/`
+  - KOSPI scan outputs (`results_web.json`, charts)
+- `kosdaq_data/`
+  - KOSDAQ scan outputs (`results_web.json`, charts)
+- `tema_stage2_data/`
+  - Tema Stage2 scan outputs used by app
+- `tema_cache_data/`
+  - Cache-based fast pipeline data
+  - `cache/ohlcv_daily.parquet` : daily OHLCV cache (1y)
+  - `cache/universe_meta.json`  : universe metadata
+  - `results_web.json`          : fast validator output payload
+  - `state/stage2_state.json`   : active-set and rank history
+- `apt_data/`
+  - APT export payload and charts
+- `edu_data/`
+  - Education/regional JSON exports
+- `ML/results/`
+  - ML outputs (`selected_stocks.csv/json`, `report.html`)
+
+3) Main Run Files
+- `run_portal_batch.cmd`
+  - Full local batch refresh (kospi/kosdaq/tema/edu + conditional apt)
+- `run_scheduled_ohlcv_collector.cmd`
+  - Scheduled daily cache collector (incremental, skip if already cached)
+- `run_fast_stage2_validator.cmd`
+  - Fast cache-based Stage2 validator
+
+4) Python Entry Files
+- `scheduled_ohlcv_collector.py`
+  - Wrapper for collector
+- `collector_hourly.py`
+  - Collector core (daily-only now; name kept for compatibility)
+- `fast_stage2_validator.py`
+  - Wrapper for cache validator
+- `stage2_from_cache.py`
+  - Cache validator core
+- `tema_stage2_export_core.py`
+  - Tema surge export module alias
+
+5) Naming Convention (current)
+- `tema_*` => Tema pipeline naming (preferred)
+- Legacy `local_*` names are minimized and kept only where compatibility is needed.
+
