@@ -4,7 +4,7 @@
 UI: Glassmorphism / Neumorphism / Responsive / Sticky Header (CSS)
 테마: 따뜻한 신뢰감을 주는 소프트 블루·인디고 팔레트(본문·링크·카드·탭 통일).
 레이아웃: 사이드바 option_menu · 메인은 st.container(border=True) 카드 셸 + 전역 카드 CSS.
-홈 «마이 대시보드» 탭군에 **여행 스케치(목업)** — 국가별 데모 카드.
+홈 «마이 대시보드» 탭군에 **여행 스케치** — 국가별 데모 카드.
 홈에서는 시장·생활·개발 탭을, 학사정보에서는 명문대·초등·예비 중등을 둡니다.
 상단 제목·소개 후 탭 영역이 이어집니다.
 - 날씨: Open-Meteo (API 키 불필요)
@@ -19,16 +19,20 @@ UI: Glassmorphism / Neumorphism / Responsive / Sticky Header (CSS)
 - 에이전트: OPENAI_API_KEY 있으면 OpenAI, 없으면 로컬 규칙 응답
 - 네트워크 불가 시에도 UI 확인 가능: 날씨·환율·뉴스·GitHub 검색·주가 탭은 **내장 샘플 데이터**로 폴백
 - 인코딩: 본 파일 UTF-8 저장 전제 · 한글 CSV는 utf-8-sig(BOM)로 내보냄(Excel 호환)
-- 화장품 가격비교: 채널별 **목업 표** + 공식몰 링크(실시간 가격 미연동)
-- 컴퓨터 가격비교: 제품군별 **목업 표** + 가격 비교 사이트 링크(실시간 미연동)
+- 화장품 가격비교: 채널별 **샘플 표** + 공식몰 링크(실시간 가격 미연동)
+- 컴퓨터 가격비교: 제품군별 **샘플 표** + 가격 비교 사이트 링크(실시간 미연동)
 """
 
 from __future__ import annotations
 
+import hashlib
 import html
+import json
+import math
 import os
 import re
 from contextlib import contextmanager
+from pathlib import Path
 from typing import Any, Iterator
 import xml.etree.ElementTree as ET
 from datetime import date, datetime, timedelta
@@ -58,8 +62,44 @@ except ModuleNotFoundError:
     go = None  # type: ignore[misc, assignment]
 
 KST = ZoneInfo("Asia/Seoul")
-
 APP_DISPLAY_TITLE = "생활 정보 포털"
+
+# 섹터 요약 대시보드 막대 차트 — 코스피·코스닥·테마 공통 파스텔 팔레트
+_SECTOR_DASHBOARD_PASTEL_COLORS: tuple[str, ...] = (
+    "#f9c4d2",  # blush rose
+    "#fde68a",  # butter
+    "#bbf7d0",  # mint
+    "#c4d9ff",  # periwinkle
+    "#a5f3fc",  # sky
+    "#fbcfe8",  # pink mist
+    "#e9d5ff",  # lilac
+    "#fed7aa",  # peach
+    "#99f6e4",  # aqua
+    "#d9f99d",  # lime sorbet
+)
+
+
+def _sector_dashboard_bar_colors(n: int) -> list[str]:
+    if n <= 0:
+        return []
+    pal = _SECTOR_DASHBOARD_PASTEL_COLORS
+    return [pal[i % len(pal)] for i in range(n)]
+
+
+def _file_mtime_str_kst(path: Path, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
+    """파일 mtime(UTC 기준 시각)을 KST로 표시. 서버 TZ가 UTC여도 payload와 같은 눈대장이 됨."""
+
+    import datetime as _dt
+
+    try:
+        m = path.stat().st_mtime
+        return (
+            _dt.datetime.fromtimestamp(m, tz=_dt.timezone.utc)
+            .astimezone(KST)
+            .strftime(fmt)
+        )
+    except OSError:
+        return "-"
 
 
 def _st_try_border_container() -> Any:
@@ -71,18 +111,60 @@ def _st_try_border_container() -> Any:
         return st.container()
 
 
+def _tabular_row_count(data: Any) -> int:
+    """`st.dataframe`에 넘기는 DataFrame·Styler·행 dict 리스트 등의 행 수."""
+    if data is None:
+        return 0
+    if isinstance(data, list):
+        return len(data)
+    inner = getattr(data, "data", None)
+    if inner is not None and hasattr(inner, "shape"):
+        try:
+            return int(inner.shape[0])
+        except (TypeError, ValueError):
+            pass
+    if hasattr(data, "shape"):
+        try:
+            return int(data.shape[0])
+        except (TypeError, ValueError):
+            pass
+    try:
+        return len(data)
+    except TypeError:
+        return 0
+
+
+def _st_dataframe_all_rows(data: Any, **kwargs: Any) -> None:
+    """
+    표 안 세로 스크롤을 최소화하고 종목·행을 한꺼번에 보이게 함.
+    Streamlit 기본(height 생략 ≈ auto)은 약 10행만 보여 안쪽 스크롤이 생김 → `content` 사용.
+    """
+    opts: dict[str, Any] = {"use_container_width": True, "hide_index": True}
+    opts.update(kwargs)
+    try:
+        st.dataframe(data, height="content", **opts)
+    except TypeError:
+        n = _tabular_row_count(data)
+        px = min(10000, max(120, 44 + 34 * (n + 1)))
+        st.dataframe(data, height=px, **opts)
+
+
 def _df_to_csv_utf8_sig_bytes(df: Any) -> bytes:
     """pandas DataFrame → 한글·컬럼명 보존 CSV 바이트(Excel 호환 BOM 포함)."""
 
     return df.to_csv(encoding="utf-8-sig").encode("utf-8-sig")
 
 
-# 글로벌 시각 탭
-CLOCK_ZONES: list[tuple[str, str]] = [
-    ("서울", "Asia/Seoul"),
-    ("뉴욕", "America/New_York"),
-    ("런던", "Europe/London"),
-    ("UTC", "UTC"),
+# 글로벌 시각 탭 — 지도 표시용 (이름, IANA TZ, 위도, 경도, 한 줄 역할)
+INVESTMENT_WORLD_HUBS: list[tuple[str, str, float, float, str]] = [
+    ("서울", "Asia/Seoul", 37.5665, 126.9780, "코스피·코스닥·현지 매매"),
+    ("도쿄", "Asia/Tokyo", 35.6762, 139.6503, "아시아 개장·엔·반도체 심리"),
+    ("홍콩", "Asia/Hong_Kong", 22.3193, 114.1694, "H주·중국 유동성·ADR 연결"),
+    ("상해", "Asia/Shanghai", 31.2304, 121.4737, "A주·무역·제조 뉴스"),
+    ("런던", "Europe/London", 51.5074, -0.1278, "FX·유럽장·한국 아침에 겹침"),
+    ("뉴욕", "America/New_York", 40.7128, -74.0060, "NYSE·나스닥·글로벌 레짐"),
+    ("시카고", "America/Chicago", 41.8781, -87.6298, "CME 선물·변동성"),
+    ("그리니치(UTC)", "UTC", 51.4769, -0.0005, "협정세계시 기준"),
 ]
 
 # 주식 분석 — 드롭다운 프리셋 (야후 파이낸스 심볼)
@@ -662,42 +744,6 @@ LEARNING_PREP_SITES: list[dict] = [
     },
 ]
 
-# 필수체크리스트 — 학부모 행동 단위 (세션에 체크 상태 저장)
-PARENT_CHECKLIST_ITEMS: list[dict[str, str]] = [
-    {
-        "label": "📌 관할 시·도 교육청·(해당 시) 구청 **입학·배정 공지** 확인",
-        "hint": "연도·거주지별로 일정과 서류가 다릅니다.",
-    },
-    {
-        "label": "🏫 **학교알리미**로 배정·관심 학교 조회 (**교복**·공시·**통학·배정** 참고)",
-        "hint": "공시 범위 안에서 비교하고, 최종 배정·학구는 교육청·학교 공지를 따르세요.",
-    },
-    {
-        "label": "🔔 **나이스 학부모**에서 연락처·알림 설정 · **성적·출결** 확인 흐름 익히기",
-        "hint": "통지·열람 경로를 미리 맞춰 두면 학년 전환 시 수월합니다.",
-    },
-    {
-        "label": "📱 **e-알리미·아이알리미** 등 학교 안내 앱 설치·알림 설정",
-        "hint": "학교가 채택한 서비스만 해당합니다.",
-    },
-    {
-        "label": "📄 입학·전학에 필요한 **민원·증명(정부24 등)** 준비 여부 확인",
-        "hint": "주민등록·가족관계등본 등 발급 가능 여부.",
-    },
-    {
-        "label": "🚌 자녀와 **통학·등하교 안전 동선** 이야기 나누기",
-        "hint": "처음 다니는 길은 여유 있게 연습할 수 있습니다.",
-    },
-    {
-        "label": "☎️ 가족이 **청소년 상담 1388** 번호·사이트를 아는지 확인",
-        "hint": "위기 시 바로 쓸 수 있게 공유해 두면 좋습니다.",
-    },
-    {
-        "label": "📅 학교 **방과후·동아리 모집 시즌** 공지 확인",
-        "hint": "학교 홈페이지·알림 앱을 함께 보세요.",
-    },
-]
-
 # GitHub Search API — 프리셋 (Star·최근 활동 위주)
 GITHUB_SEARCH_PRESETS: list[tuple[str, str]] = [
     ("홈랩 / self-hosted (Star)", "topic:self-hosted stars:>2500"),
@@ -984,6 +1030,85 @@ def fetch_fx_usd_base() -> dict | None:
         return None
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fx_yahoo_krw_x_close_series(period: str = "2y") -> "pd.Series | None":
+    """USD/KRW 일봉 종가 (Yahoo `KRW=X` — 원화로 1달러당)."""
+
+    if yf is None or pd is None:
+        return None
+    try:
+        raw = yf.download("KRW=X", period=period, interval="1d", progress=False, auto_adjust=True)
+        if raw is None or raw.empty:
+            return None
+        if isinstance(raw.columns, pd.MultiIndex):
+            try:
+                raw = raw.copy()
+                raw.columns = raw.columns.get_level_values(0)
+            except Exception:
+                return None
+        if "Close" not in raw.columns:
+            return None
+        s = raw["Close"].dropna().astype(float)
+        s = s[~s.index.duplicated(keep="last")].sort_index()
+        return s if len(s) >= 40 else None
+    except Exception:
+        return None
+
+
+def _fx_forecast_krw_per_usd_log_linear(
+    close: "pd.Series",
+    *,
+    horizon_days: int,
+    fit_window: int,
+) -> dict[str, Any] | None:
+    """최근 구간 로그가격 직선 추세 외삽 + 잔차 표준편차 기반 대략 밴드(참고용)."""
+
+    import numpy as np
+
+    if close is None or len(close) < 40:
+        return None
+    fw = max(30, min(int(fit_window), len(close)))
+    y = close.iloc[-fw:].dropna()
+    if len(y) < 30:
+        return None
+    logy = np.log(y.values.astype(float))
+    t = np.arange(len(logy), dtype=float)
+    slope, icept = np.polyfit(t, logy, 1)
+    pred_in = slope * t + icept
+    resid = logy - pred_in
+    sig = float(np.std(resid)) if len(resid) > 1 else 0.0
+    ss_res = float(np.sum(resid**2))
+    mean_log = float(np.mean(logy))
+    ss_tot = float(np.sum((logy - mean_log) ** 2))
+    r2 = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+
+    last_t = float(len(y) - 1)
+    h = np.arange(1, int(horizon_days) + 1, dtype=float)
+    fut_t = last_t + h
+    fut_log = slope * fut_t + icept
+    z = 1.645
+    widen = z * sig * np.sqrt(h)
+    fut_mid = np.exp(fut_log)
+    fut_lo = np.exp(fut_log - widen)
+    fut_hi = np.exp(fut_log + widen)
+
+    last_dt = pd.Timestamp(y.index[-1])
+    bdays = pd.bdate_range(start=last_dt + pd.Timedelta(days=1), periods=int(horizon_days), freq="B")
+    n = min(len(bdays), len(fut_mid))
+    return {
+        "dates": bdays[:n],
+        "mid": fut_mid[:n],
+        "lo": fut_lo[:n],
+        "hi": fut_hi[:n],
+        "slope_log_per_day": float(slope),
+        "sigma_log_resid": sig,
+        "r2_log": float(max(0.0, min(1.0, r2))),
+        "fit_n": int(len(y)),
+        "last_close": float(y.iloc[-1]),
+        "last_date": last_dt,
+    }
+
+
 _RSS_HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; StreamlitLife/1.0; +https://example.invalid)"}
 
 
@@ -1165,7 +1290,7 @@ def local_agent_reply(text: str) -> str:
     if "뉴욕" in t or "나스닥" in t or "nyse" in t or "미국장" in t or "시차" in t:
         return "**🌍 시계** 탭에서 뉴욕 시각과 NYSE 정규장 여부(대략)를 볼 수 있습니다. 공휴일은 반영되지 않습니다."
     if "여행" in t or "travel" in t:
-        return "**🗺️ 여행 스케치** 탭에서 국가를 고르면 목업 날씨·여행 시즌·축제·명소 TOP3를 카드로 볼 수 있습니다."
+        return "**🗺️ 여행 스케치** 탭에서 국가를 고르면 샘플 날씨·여행 시즌·축제·명소 TOP3를 카드로 볼 수 있습니다."
     return (
         f"「{text[:40]}」에 대한 간단 응답: "
         "지금은 로컬 모드입니다. NAS/PC에 `OPENAI_API_KEY`를 설정하면 "
@@ -1240,12 +1365,12 @@ def _render_curated_link_blocks(blocks: list[dict], *, key_prefix: str) -> None:
         st.markdown("")
 
 
-# 국가별 여행 목업 (데모용 — 실제 일정·날씨와 무관)
+# 국가별 여행 샘플 (데모용 — 실제 일정·날씨와 무관)
 # 구조: { 국가명(str): { "날씨": str, "시기": str, "축제": list[str], "명소": list[str], … } }
 TRAVEL_MOCK_BY_COUNTRY: dict[str, dict[str, Any]] = {
     "대한민국": {
         "lat": 37.5665, "lon": 126.9780, "city": "서울",
-        "날씨": "서울 기준 **맑음** · 기온 **14°C** · 바람 약 · 미세먼지 **보통** (목업)",
+        "날씨": "서울 기준 **맑음** · 기온 **14°C** · 바람 약 · 미세먼지 **보통**",
         "시기": "**봄 · 가을 ⭐** — **4~5월·9~10월** 선선한 기온에 벚꽃·단풍·축제 즐기기 좋음. 한여름·혹한기는 일정 여유 있게.",
         "축제": [
             "진해 군항제·벚꽃 축제(봄)",
@@ -1257,12 +1382,12 @@ TRAVEL_MOCK_BY_COUNTRY: dict[str, dict[str, Any]] = {
             "제주 한라산·성산일출봉 — 해안 드라이브와 자연",
             "경주 불국사·대릉원 — 신라 유적 일주",
         ],
-        "travel_tip": "💡 **대한민국** · 교통카드(T-money·카카오 등)를 미리 준비하면 시내 이동이 수월합니다. 인기 맛집·카페는 점심·저녁 피크 시간대 예약을 권합니다. (목업 안내)",
+        "travel_tip": "💡 **대한민국** · 교통카드(T-money·카카오 등)를 미리 준비하면 시내 이동이 수월합니다. 인기 맛집·카페는 점심·저녁 피크 시간대 예약을 권합니다.",
         "travel_tip_style": "info",
     },
     "일본": {
         "lat": 35.6762, "lon": 139.6503, "city": "도쿄",
-        "날씨": "도쿄 기준 **흐림 곳곳 맑음** · **16°C** · 습도 보통 (목업)",
+        "날씨": "도쿄 기준 **흐림 곳곳 맑음** · **16°C** · 습도 보통",
         "시기": "**벚꽃 · 단풍 시즌** — **3~5월 벚꽃** · **10~11월 단풍** 인기. 여름은 후지산·북해도 제외하면 더운 편.",
         "축제": [
             "삿포로 눈 축제(겨울)",
@@ -1274,12 +1399,12 @@ TRAVEL_MOCK_BY_COUNTRY: dict[str, dict[str, Any]] = {
             "후지산·하코네 — 온천·전통 여관 체험",
             "오사카성·도톤보리 — 먹거리·야경",
         ],
-        "travel_tip": "💡 **일본** · 편의점 ATM·교통카드(IC) 충전은 현금 없이도 가능한 경우가 많습니다. 대중목욕·온천은 작은 타월을 챙기면 편합니다. (목업 안내)",
+        "travel_tip": "💡 **일본** · 편의점 ATM·교통카드(IC) 충전은 현금 없이도 가능한 경우가 많습니다. 대중목욕·온천은 작은 타월을 챙기면 편합니다.",
         "travel_tip_style": "info",
     },
     "태국": {
         "lat": 13.7563, "lon": 100.5018, "city": "방콕",
-        "날씨": "방콕 기준 **대체로 맑음** · **32°C** · 소나기 가능(목업)",
+        "날씨": "방콕 기준 **대체로 맑음** · **32°C** · 소나기 가능",
         "시기": "**건기 (11월~2월)** — 더위·습도 상대적으로 덜 부담. 송끌란 등 물축제는 4월 무렵.",
         "축제": [
             "송끌란(태국 새해 물축제, 4월 전후)",
@@ -1291,12 +1416,12 @@ TRAVEL_MOCK_BY_COUNTRY: dict[str, dict[str, Any]] = {
             "치앙마이 올드타운 — 랜턴·산사·카페",
             "푸켓·피피 섬 — 해변·스노클링",
         ],
-        "travel_tip": "⚠️ **태국** · 더위·습기가 큽니다. 수분 보충·자외선 차단을 권합니다. 야시장·관광지에서는 소매치기·택시 요금을 미리 확인하세요. 입국 규정은 공식 안내를 따르세요. (목업 안내)",
+        "travel_tip": "⚠️ **태국** · 더위·습기가 큽니다. 수분 보충·자외선 차단을 권합니다. 야시장·관광지에서는 소매치기·택시 요금을 미리 확인하세요. 입국 규정은 공식 안내를 따르세요.",
         "travel_tip_style": "warning",
     },
     "프랑스": {
         "lat": 48.8566, "lon": 2.3522, "city": "파리",
-        "날씨": "파리 기준 **약간 흐림** · **12°C** · 서늘한 바람 (목업)",
+        "날씨": "파리 기준 **약간 흐림** · **12°C** · 서늘한 바람",
         "시기": "**4~6월 · 9~10월** — 관광지 혼잡은 피하려면 비수기 가장자리 추천.",
         "축제": [
             "칸 영화제(5월)",
@@ -1308,12 +1433,12 @@ TRAVEL_MOCK_BY_COUNTRY: dict[str, dict[str, Any]] = {
             "프로방스 라벤더·아비뇽 — 남부 분위기",
             "몽생미셸 — 섬 수도원 일몰",
         ],
-        "travel_tip": "💡 **프랑스** · 미술관은 사전 예약·오전 입장이 한산한 편입니다. 파리 외 지역 이동은 기차(TGV 등) 예약을 미리 하면 좋습니다. (목업 안내)",
+        "travel_tip": "💡 **프랑스** · 미술관은 사전 예약·오전 입장이 한산한 편입니다. 파리 외 지역 이동은 기차(TGV 등) 예약을 미리 하면 좋습니다.",
         "travel_tip_style": "info",
     },
     "미국": {
         "lat": 40.7128, "lon": -74.0060, "city": "뉴욕",
-        "날씨": "뉴욕 기준 **맑음** · **11°C** · 봄날씨 느낌 (목업)",
+        "날씨": "뉴욕 기준 **맑음** · **11°C** · 봄날씨 느낌",
         "시기": "**지역별 상이** — 뉴욕·DC는 봄·가을, 서부 국립공원은 여름·가을 드라이브 인기.",
         "축제": [
             "추수감사절 퍼레이드(뉴욕)",
@@ -1325,12 +1450,12 @@ TRAVEL_MOCK_BY_COUNTRY: dict[str, dict[str, Any]] = {
             "그랜드 캐니언·자이언 — 국립공원 트레킹",
             "샌프란시스코 금문교·피어39 — 해안 도시",
         ],
-        "travel_tip": "⚠️ **미국** · ESTA·비자 등 **입국 요건**은 사전에 공식 사이트에서 확인하세요. 식당·택시는 팁 문화가 있습니다. 주별 세금·교통 규칙이 다를 수 있습니다. (목업 안내)",
+        "travel_tip": "⚠️ **미국** · ESTA·비자 등 **입국 요건**은 사전에 공식 사이트에서 확인하세요. 식당·택시는 팁 문화가 있습니다. 주별 세금·교통 규칙이 다를 수 있습니다.",
         "travel_tip_style": "warning",
     },
     "이탈리아": {
         "lat": 41.9028, "lon": 12.4964, "city": "로마",
-        "날씨": "로마 기준 **맑음** · **18°C** · 봄 햇살 (목업)",
+        "날씨": "로마 기준 **맑음** · **18°C** · 봄 햇살",
         "시기": "**4~6월 · 9~10월** — 더위·관광 성수기 혼잡 완화에 유리. 남부 해안은 여름 피크 주의.",
         "축제": [
             "베네치아 카니발(겨울)",
@@ -1342,7 +1467,7 @@ TRAVEL_MOCK_BY_COUNTRY: dict[str, dict[str, Any]] = {
             "피렌체 우피치·두오모 — 르네상스 거리",
             "베네치아 산마르코·골목 — 수상 도시 산책",
         ],
-        "travel_tip": "💡 **이탈리아** · 유적·박물관은 입장권을 미리 끊으면 대기 시간을 줄일 수 있습니다. 관광지 밀집 지역은 소지품을 살펴보세요. 일부 레스토랑에는 테이블 비용(coperto) 등 안내가 있으니 확인하면 좋습니다. (목업 안내)",
+        "travel_tip": "💡 **이탈리아** · 유적·박물관은 입장권을 미리 끊으면 대기 시간을 줄일 수 있습니다. 관광지 밀집 지역은 소지품을 살펴보세요. 일부 레스토랑에는 테이블 비용(coperto) 등 안내가 있으니 확인하면 좋습니다.",
         "travel_tip_style": "info",
     },
 }
@@ -1353,7 +1478,7 @@ def _travel_season_metric(season_md: str) -> str:
 
     s = (season_md or "").strip()
     if not s:
-        return "참고용 목업"
+        return "참고용 샘플"
     # 첫 구분선만 분리 (숫자 범위의 '~'·일반 하이픈은 분리하지 않음)
     parts = re.split(r"\s*[\u2014\u2013\u2212\uFF0D]\s*", s, maxsplit=1)
     head_raw = parts[0].strip().replace("**", "").strip()
@@ -1362,14 +1487,14 @@ def _travel_season_metric(season_md: str) -> str:
     tail = parts[1].strip().replace("**", "").strip() if len(parts) > 1 else ""
     if tail:
         return tail[:56] + ("…" if len(tail) > 56 else "")
-    return "참고용 목업"
+    return "참고용 샘플"
 
 
 def _travel_safe_metric_value(label: str) -> str:
     """st.metric value용 — 빈 문자열·개행 등으로 위젯 오류 나지 않게."""
 
     v = (label or "").replace("\r\n", " ").replace("\n", " ").strip()
-    return v if v else "참고용 목업"
+    return v if v else "참고용 샘플"
 
 
 def _parse_travel_spot_line(line: str) -> tuple[str, str]:
@@ -1449,12 +1574,12 @@ def _travel_render_weather_season_cards(row: dict[str, Any]) -> None:
                             unsafe_allow_html=True,
                         )
             else:
-                # API 실패 시 목업 텍스트 폴백
+                # API 실패 시 샘플 텍스트 폴백
                 fallback = str(row.get("날씨") or "").strip() or "(날씨 정보 없음)"
-                st.warning("날씨 API에 연결하지 못했습니다. 아래는 참고용 목업입니다.")
+                st.warning("날씨 API에 연결하지 못했습니다. 아래는 참고용 샘플입니다.")
                 st.markdown(fallback)
         else:
-            st.markdown(str(row.get("날씨") or "(좌표 미등록 — 목업 표시)").strip())
+            st.markdown(str(row.get("날씨") or "(좌표 미등록 — 샘플 표시)").strip())
 
     # ── 여행 최적기 카드 ──
     with _st_try_border_container():
@@ -1464,7 +1589,7 @@ def _travel_render_weather_season_cards(row: dict[str, Any]) -> None:
             st.metric(
                 label="추천 시즌",
                 value=metric_label,
-                help="목업 요약입니다. 아래 문단에서 세부 설명을 확인하세요.",
+                help="샘플 요약입니다. 아래 문단에서 세부 설명을 확인하세요.",
             )
         except Exception:
             try:
@@ -1472,7 +1597,7 @@ def _travel_render_weather_season_cards(row: dict[str, Any]) -> None:
             except Exception:
                 st.markdown(f"**추천 시즌** · {metric_label}")
         st.caption("상세 안내")
-        st.markdown(season_md if season_md else "*시기 목업 문구가 비어 있습니다.*")
+        st.markdown(season_md if season_md else "*시기 샘플 문구가 비어 있습니다.*")
 
 
 def _travel_render_festival_section(row: dict[str, Any]) -> None:
@@ -1559,23 +1684,92 @@ def _travel_render_prep_checklist_grid() -> None:
                     )
 
 
-_NAV_OPTIONS: tuple[str, ...] = ("홈", "코스닥 스캐너", "코스피 스캐너", "학사정보", "학습준비", "필수체크리스트")
+_NAV_OPTIONS: tuple[str, ...] = (
+    "시장",
+)
 
-# 화장품 가격비교 (홈 탭 — 카테고리별 목업 표, 실시간 가격·재고와 무관)
+# 주식 앱 상단 바 — 짧은 라벨 `_TOPBAR_NAV_SHORT` → `_SIDEBAR_NAV_OPTIONS` 로 매핑
+_MARKET_NAV_OPTIONS: tuple[str, ...] = (
+    "오늘의 픽",
+    "코스피 스캐너",
+    "코스닥 스캐너",
+    "ETF 스캐너",
+    "관심주식",
+)
+_WL_NAV_LOGIN = "로그인"
+_WL_NAV_REGISTER = "회원가입"
+_SIDEBAR_NAV_OPTIONS: tuple[str, ...] = _MARKET_NAV_OPTIONS + (_WL_NAV_LOGIN, _WL_NAV_REGISTER)
+# 상단 바(우측 메뉴)용 짧은 라벨 → 전체 메뉴 키
+_TOPBAR_NAV_SHORT: tuple[str, ...] = ("오늘의픽", "코스피", "코스닥", "ETF", "관심", "로그인", "가입")
+_TOPBAR_SHORT_TO_PAGE: dict[str, str] = dict(zip(_TOPBAR_NAV_SHORT, _SIDEBAR_NAV_OPTIONS))
+# 브라우저 주소창 `?p=` — 뒤로가기 시 앱 안에서 이전 메뉴·메인으로 이동하도록 히스토리와 동기화
+_NAV_QUERY_SLUG_TO_SHORT: dict[str, str] = {
+    "pick": "오늘의픽",
+    "kospi": "코스피",
+    "kosdaq": "코스닥",
+    "etf": "ETF",
+    "wl": "관심",
+    "login": "로그인",
+    "join": "가입",
+}
+_TOPBAR_SHORT_TO_SLUG: dict[str, str] = {
+    short: slug for slug, short in _NAV_QUERY_SLUG_TO_SHORT.items()
+}
+_PAGE_SLUG_TO_FULL: dict[str, str] = {
+    "pick": "오늘의 픽",
+    "kospi": "코스피 스캐너",
+    "kosdaq": "코스닥 스캐너",
+    "etf": "ETF 스캐너",
+    "wl": "관심주식",
+    "login": _WL_NAV_LOGIN,
+    "join": _WL_NAV_REGISTER,
+}
+
+# ETF 스캐너 — 순위표·차트 뷰어 공통 섹터 필터(고정 옵션, 드롭다운 전용)
+_ETF_SECTOR_FILTER_OPTIONS: tuple[str, ...] = (
+    "전체",
+    "건설/인프라",
+    "금융",
+    "레버리지",
+    "모빌리티",
+    "미국주식",
+    "바이오/헬스케어",
+)
+
+# 스탠 와인스타인(Stan Weinstein) 4단계 — 짧은 맥락만 UI에 삽입(교육용 요약, 투자 권유 아님)
+_WEINSTEIN_TIPS: tuple[str, ...] = (
+    "와인스타인식으로 **1단계(베이스)**는 길게 횡보하며 수급이 갈리는 구간, **2단계(어드밴싱)**는 돌파 뒤 상승이 펼쳐지는 구간으로 자주 이야기됩니다. 이 앱의 **Stage2**는 그중 **종목이 2단계에 가깝다고 판단될 때**를 숫자로 거른 결과에 가깝습니다.",
+    "**3단계(디스트리뷰션)** 고점 부근에서는 «누가 팔고 있나»를 거래량·변동성으로 보는 식의 경계 이야기가 많고, **4단계(딥클라인)**에서는 손실을 줄이는 쪽이 우선이라는 식의 조언이 흔합니다.",
+    "실무 요약 중 하나는 **거래량이 추세를 확인**한다는 것 — 상승이 거래량 동반으로 이어질 때와, 줄은 채 가격만 오를 때를 구분하자는 뉘앙스입니다.",
+    "**시장 → 섹터 → 종목** 순으로 맥락을 맞추라는 말은, 위험을 종목 한 곳에만 몰지 말자는 뜻으로 자주 전해집니다. 이 스캐너는 그중 **종목** 레이어를 돕습니다.",
+    "30주 이동평균선 근처의 **바닥 다지기·돌파** 이야기는 1→2 전환을 가늠할 때 등장하는 클리셰 중 하나입니다. (이 앱 지수 카드의 MA50/MA200은 다른 관점의 참고선입니다.)",
+    "**받아 들이고 나가기**까지 시간을 둔다는 식의 심리·자금관리 이야기도 같이 붙어 다니는 편입니다.",
+)
+
+
+def _weinstein_tip_caption(*, salt: str = "") -> None:
+    """짧은 와인스타인 맥락 캡션 1줄(salt로 화면마다 다른 문장 고정 선택)."""
+    if not _WEINSTEIN_TIPS:
+        return
+    i = sum(ord(c) for c in str(salt)) % len(_WEINSTEIN_TIPS)
+    st.caption(f"참고 · {_WEINSTEIN_TIPS[i]}")
+
+
+# 화장품 가격비교 (홈 탭 — 카테고리별 샘플 표, 실시간 가격·재고와 무관)
 COSMETICS_PRICE_COMPARE_MOCK: dict[str, list[dict[str, str]]] = {
     "스킨케어 · 에센스": [
         {
             "상품명": "데모 수분 에센스",
-            "브랜드": "(목업 브랜드 A)",
+            "브랜드": "샘플 브랜드 A",
             "용량": "80ml",
             "올리브영": "28,000원",
             "롭스": "26,400원",
             "쿠팡(참고)": "24,900원~",
-            "비고": "행사가 변동 (목업)",
+            "비고": "행사가 변동",
         },
         {
             "상품명": "데모 비타민 세럼",
-            "브랜드": "(목업 브랜드 B)",
+            "브랜드": "샘플 브랜드 B",
             "용량": "30ml",
             "올리브영": "42,000원",
             "롭스": "42,000원",
@@ -1584,7 +1778,7 @@ COSMETICS_PRICE_COMPARE_MOCK: dict[str, list[dict[str, str]]] = {
         },
         {
             "상품명": "데모 장벽 크림",
-            "브랜드": "(목업 브랜드 C)",
+            "브랜드": "샘플 브랜드 C",
             "용량": "50ml",
             "올리브영": "35,000원",
             "롭스": "—",
@@ -1595,7 +1789,7 @@ COSMETICS_PRICE_COMPARE_MOCK: dict[str, list[dict[str, str]]] = {
     "메이크업": [
         {
             "상품명": "데모 쿠션 파운데이션",
-            "브랜드": "(목업 브랜드 D)",
+            "브랜드": "샘플 브랜드 D",
             "용량": "14g",
             "올리브영": "32,000원",
             "롭스": "29,900원",
@@ -1604,7 +1798,7 @@ COSMETICS_PRICE_COMPARE_MOCK: dict[str, list[dict[str, str]]] = {
         },
         {
             "상품명": "데모 립 틴트",
-            "브랜드": "(목업 브랜드 E)",
+            "브랜드": "샘플 브랜드 E",
             "용량": "5g",
             "올리브영": "18,000원",
             "롭스": "17,500원",
@@ -1615,7 +1809,7 @@ COSMETICS_PRICE_COMPARE_MOCK: dict[str, list[dict[str, str]]] = {
     "클렌징 · 선케어": [
         {
             "상품명": "데모 폼 클렌저",
-            "브랜드": "(목업 브랜드 F)",
+            "브랜드": "샘플 브랜드 F",
             "용량": "150ml",
             "올리브영": "15,000원",
             "롭스": "14,500원",
@@ -1624,12 +1818,12 @@ COSMETICS_PRICE_COMPARE_MOCK: dict[str, list[dict[str, str]]] = {
         },
         {
             "상품명": "데모 선크림 SPF50+",
-            "브랜드": "(목업 브랜드 G)",
+            "브랜드": "샘플 브랜드 G",
             "용량": "50ml",
             "올리브영": "22,000원",
             "롭스": "21,000원",
             "쿠팡(참고)": "19,400원~",
-            "비고": "계절 수요 반영 (목업)",
+            "비고": "계절 수요 반영",
         },
     ],
 }
@@ -1659,20 +1853,20 @@ COSMETICS_PRICE_PORTALS: list[dict[str, str]] = [
 ]
 
 
-# 컴퓨터 가격비교 (홈 탭 — 제품군별 목업 표, 실시간 최저가·재고와 무관)
+# 컴퓨터 가격비교 (홈 탭 — 제품군별 샘플 표, 실시간 최저가·재고와 무관)
 PC_PRICE_COMPARE_MOCK: dict[str, list[dict[str, str]]] = {
     "노트북 · 미니 PC": [
         {
             "상품명": "데모 울트라북 14\"",
-            "스펙 요약": "CPU 목업 · RAM 16GB · SSD 512GB",
+            "스펙 요약": "CPU 샘플 · RAM 16GB · SSD 512GB",
             "다나와(참고)": "1,249,000원~",
             "쿠팡(참고)": "1,189,000원~",
             "11번가(참고)": "1,210,000원~",
-            "비고": "색상·구성별 변동 (목업)",
+            "비고": "색상·구성별 변동",
         },
         {
             "상품명": "데모 게이밍 노트북 15.6\"",
-            "스펙 요약": "목업 GPU · RAM 32GB",
+            "스펙 요약": "샘플 GPU · RAM 32GB",
             "다나와(참고)": "2,190,000원~",
             "쿠팡(참고)": "2,099,000원~",
             "11번가(참고)": "2,150,000원~",
@@ -1680,7 +1874,7 @@ PC_PRICE_COMPARE_MOCK: dict[str, list[dict[str, str]]] = {
         },
         {
             "상품명": "데모 미니 PC NUC형",
-            "스펙 요약": "목업 CPU · RAM 16GB",
+            "스펙 요약": "샘플 CPU · RAM 16GB",
             "다나와(참고)": "689,000원~",
             "쿠팡(참고)": "659,000원~",
             "11번가(참고)": "—",
@@ -1690,7 +1884,7 @@ PC_PRICE_COMPARE_MOCK: dict[str, list[dict[str, str]]] = {
     "데스크톱 · 브랜드 PC": [
         {
             "상품명": "데모 사무용 브랜드 데스크톱",
-            "스펙 요약": "목업 i5급 · RAM 16GB · SSD 512GB",
+            "스펙 요약": "샘플 i5급 · RAM 16GB · SSD 512GB",
             "다나와(참고)": "989,000원~",
             "쿠팡(참고)": "959,000원~",
             "11번가(참고)": "970,000원~",
@@ -1698,17 +1892,17 @@ PC_PRICE_COMPARE_MOCK: dict[str, list[dict[str, str]]] = {
         },
         {
             "상품명": "데모 게이밍 타워",
-            "스펙 요약": "목업 CPU/GPU · RAM 32GB",
+            "스펙 요약": "샘플 CPU/GPU · RAM 32GB",
             "다나와(참고)": "2,590,000원~",
             "쿠팡(참고)": "2,499,000원~",
             "11번가(참고)": "2,540,000원~",
             "비고": "케이스·파워 옵션별 상이",
         },
     ],
-    "주요 부품 (목업)": [
+    "주요 부품": [
         {
             "상품명": "데모 그래픽카드 (차세대급)",
-            "스펙 요약": "목업 VRAM 16GB",
+            "스펙 요약": "샘플 VRAM 16GB",
             "다나와(참고)": "879,000원~",
             "쿠팡(참고)": "849,000원~",
             "11번가(참고)": "860,000원~",
@@ -1716,7 +1910,7 @@ PC_PRICE_COMPARE_MOCK: dict[str, list[dict[str, str]]] = {
         },
         {
             "상품명": "데모 NVMe SSD 2TB",
-            "스펙 요약": "목업 Gen4",
+            "스펙 요약": "샘플 Gen4",
             "다나와(참고)": "219,000원~",
             "쿠팡(참고)": "199,000원~",
             "11번가(참고)": "209,000원~",
@@ -1724,7 +1918,7 @@ PC_PRICE_COMPARE_MOCK: dict[str, list[dict[str, str]]] = {
         },
         {
             "상품명": "데모 DDR5 RAM 32GB kit",
-            "스펙 요약": "목업 5600MHz",
+            "스펙 요약": "샘플 5600MHz",
             "다나와(참고)": "189,000원~",
             "쿠팡(참고)": "179,000원~",
             "11번가(참고)": "184,000원~",
@@ -1757,35 +1951,386 @@ PC_PRICE_PORTALS: list[dict[str, str]] = [
     },
 ]
 
+# 생활 탭 · 컴퓨터 가이드(커뮤니티·시장 경향 참고, 실시간 최저가 아님)
+LIFE_PC_AVG_PRICE_BANDS: list[dict[str, str]] = [
+    {
+        "구분": "사무·학습용 노트북(14\" 내외)",
+        "가격대(참고)": "약 80~160만 원",
+        "비고": "RAM 16GB·SSD 512GB 전후가 흔한 기준선. 행사가·환율 반영 시 변동.",
+    },
+    {
+        "구분": "휴대 중심 프리미엄 노트북",
+        "가격대(참고)": "약 140~250만 원+",
+        "비고": "밝은 디스플레이·배터리·무게가 가격을 좌우. 애플 실리콘 포함.",
+    },
+    {
+        "구분": "게이밍 노트북(미드급 GPU)",
+        "가격대(참고)": "약 180~320만 원",
+        "비고": "세대·VRAM·TGP에 따라 격차 큼. 쿨링·소음은 리뷰 필수.",
+    },
+    {
+        "구분": "완조립 브랜드 데스크톱(사무급)",
+        "가격대(참고)": "약 90~150만 원",
+        "비고": "AS 일원화 선호 시. 크기·확장성은 자작 대비 제한될 수 있음.",
+    },
+    {
+        "구분": "게이밍 데스크톱(자작·업체 조립)",
+        "가격대(참고)": "약 150만 원~400만 원+",
+        "비고": "GPU·CPU 선택이 총액의 대부분. 파워 정격·케이스 호환 확인.",
+    },
+    {
+        "구분": "미니 PC",
+        "가격대(참고)": "약 50~120만 원",
+        "비고": "베어본 vs 완제품. 업무·미디어센터용이 많음.",
+    },
+]
 
-# 그룹 탭 5개 — 각 그룹 내부에서 서브탭으로 세분화
+LIFE_PC_POPULAR_SEGMENTS: list[dict[str, str]] = [
+    {
+        "카테고리": "노트북",
+        "요즘 잘 나가는 유형": "무게·배터리 좋은 직장인용, 학생용 라이트, ‘가성비’ 게이밍 일각",
+        "한 줄": "재택·통학 병행으로 **휴대성 + RAM 16GB** 조합이 무난.",
+    },
+    {
+        "카테고리": "데스크톱",
+        "요즘 잘 나가는 유형": "미드급 게이밍 조립 PC, 소형 미니 타워",
+        "한 줄": "GPU 가격 안정·세대 교체 주기에 맞춰 **특정 카드 기준**으로 견적이 많이 맞춰짐.",
+    },
+    {
+        "카테고리": "주변기기",
+        "요즘 잘 나가는 유형": "27\" QHD 고주사율 모니터, NVMe SSD 용량 업, 기계식 키보드",
+        "한 줄": "본체 세대보다 **모니터·저장장치** 교체 수요가 꾸준.",
+    },
+    {
+        "카테고리": "그래픽카드",
+        "요즘 잘 나가는 유형": "메인스트림 VRAM 8~12GB급, AI·작업용 16GB+",
+        "한 줄": "게임·생성 AI 겸용 니즈로 **VRAM 용량**이 검색 키워드 상위.",
+    },
+]
+
+LIFE_PC_SPEC_RECOMMEND_MARKDOWN: str = """
+##### 요즘 새로 맞출 때 자주 권하는 기준(2025~2026경향)
+
+- **RAM**: 일반·사무 **16GB**는 최소선으로 보는 편. 개발·영상·로컬 LLM·듀얼 모니터는 **32GB**를 우선 검토.
+- **저장소**: **NVMe SSD 1TB**가 기본 후보가 많음. 클라우드 위주면 512GB도 가능하나, 게임·프로젝트는 금방 찹니다.
+- **CPU**: 노트북은 **최신 세대의 전력 대비 성능**(패시브 쿨링·소음) 확인. 데스크톱은 **6코어 이상**이 영상·빌드·경량 ML에 여유.
+- **GPU(게임/에딘 X)**: FHD 고주사율이면 중독급, QHD면 상위. **파워 정격·케이스 길이**를 카드 스펙과 함께 확인.
+- **디스플레이**: 장시간 작업이면 **플리커 프리·저블루** 유사 기능, 색 작업은 **sRGB/색역** 스펙 확인.
+- **OS**: 게임·일반 앱은 **Windows 11** 전제가 대부분. 맥은 **호환 소프트웨어** 먼저 체크.
+- **확장**: 메인보드 **M.2 슬롯 수**, 노트북 **RAM/SSD 업그레이드 가능 여부**(납땜 여부)는 매장·리뷰에서 확인.
+"""
+
+LIFE_PC_ML_GPU_GUIDE: list[dict[str, str]] = [
+    {
+        "용도·예산 느낌": "입문·파이썬·소형 모델·캐글식 실습",
+        "추천 GPU 성향": "**VRAM 8GB+** (가능하면 12GB). CUDA·PyTorch 생태 기준 **엔비디아**가 자료·예제가 많음.",
+        "메모": "로컬보다 **Colab / 클라우드 GPU**로 먼저 습관 잡는 것도 비용 대비 효율적.",
+    },
+    {
+        "용도·예산 느낌": "중급: 파인튜닝(LoRA)·중간 크기 LLM 일부·배치 작은 학습",
+        "추천 GPU 성향": "**16GB VRAM** 이상이 유리. 예: **RTX 4060 Ti 16GB**는 VRAM/가격 균형으로 자주 거론.",
+        "메모": "모델·양자화(4bit 등)에 따라 필요 VRAM은 크게 달라짐 — **사용 프레임워크 문서** 확인.",
+    },
+    {
+        "용도·예산 느낌": "상급: 큰 배치, 고해상도 이미지·비디오, 로컬에서 가능한 큰 체크포인트",
+        "추천 GPU 성향": "**RTX 4080(16GB)**, **RTX 4090(24GB)** 등. 멀티 GPU·워크스테이션은 예산·메인보드·PSU 동시 설계.",
+    },
+    {
+        "용도·예산 느낌": "AMD / ROCm",
+        "추천 GPU 성향": "일부 카드는 **ROCm**으로 PyTorch 등 가동 가능. **지원 매트릭스·OS**를 설치 전 필수 확인.",
+        "메모": "튜토리얼·플러그인은 **CUDA 기준**이 많아, 초보는 엔비디아가 수고가 덜한 경우가 많음.",
+    },
+    {
+        "용도·예산 느낌": "애플 실리콘(맥)",
+        "추천 GPU 성향": "**통합 메모리**로 VRAM 개념과 다름. MLX·Core ML·온디바이스 추론 위주로 설계.",
+        "메모": "CUDA 네이티브 연구 코드는 **포팅·대안** 검토가 필요.",
+    },
+    {
+        "용도·예산 느낌": "연구소·상시 서버급",
+        "추천 GPU 성향": "**RTX 6000 Ada**, **A100/H100** 클래스 또는 **클라우드 전용 인스턴스**.",
+        "메모": "가동률이 낮으면 **클라우드 spot/예약**이 총비용에서 유리한 경우가 많음.",
+    },
+]
+
+
+# 자동차 포털 — 인기 차종 요약·셀토스·옵션 가이드(커뮤니티 평가 경향 정리, 실시간 가격·재고 아님)
+CAR_POPULAR_MODEL_SUMMARY: list[dict[str, str]] = [
+    {
+        "모델": "기아 셀토스",
+        "세그먼트": "소형 SUV",
+        "만족 포인트": "실내 공간 대비 차 크기, 디자인, 주행 거치감(도심·고속 균형)",
+        "흔한 지적": "정숙성·승차감은 동급 세단보다 다소 거칠 수 있음. 파워트레인은 시승 필수",
+        "옵션 팁": "운전 보조(ADAS) 묶음 우선. 내비/클러스터 일체감은 상위 트림에서 체감",
+    },
+    {
+        "모델": "현대 코나",
+        "세그먼트": "소형 SUV",
+        "만족 포인트": "개성 있는 디자인, 도심 주차·코너링",
+        "흔한 지적": "실내·뒷좌석은 셀토스·투싼 대비 아쉬울 수 있음",
+        "옵션 팁": "전기·하이브리드는 충전·주행거리·보조금 조건을 먼저 계산",
+    },
+    {
+        "모델": "현대 투싼",
+        "세그먼트": "준중형 SUV",
+        "만족 포인트": "넉넉한 실내, 패밀리 1대차로 무난",
+        "흔한 지적": "차체가 커 도심 좁은 곳은 부담. 예산 상승",
+        "옵션 팁": "가솔린·디젤·하이브리드별 잔진동·연비 차이가 커서 시승 2회 이상 권장",
+    },
+    {
+        "모델": "기아 스포티지",
+        "세그먼트": "준중형 SUV",
+        "만족 포인트": "디자인·실내, 장거리 승차감 호평 다수",
+        "흔한 지적": "옵션 누적 시 예산 급증. 견적 비교 필수",
+        "옵션 팁": "통풍·전동시트·헤드업 등은 패키지 단위인 경우 많음",
+    },
+    {
+        "모델": "경·소형 SUV (베뉴·티볼리 등)",
+        "세그먼트": "경·소형",
+        "만족 포인트": "가격 대비 기본 장비, 도심 위주",
+        "흔한 지적": "NVH·고속 안정성은 클래스 한계",
+        "옵션 팁": "AS·잔존가율·프로모션을 장기 관점에서 비교",
+    },
+    {
+        "모델": "제네시스 GV70 등 프리미엄 SUV",
+        "세그먼트": "프리미엄",
+        "만족 포인트": "주행·마감·브랜드 경험",
+        "흔한 지적": "유지비·보험·소모품. 파워트레인 선택에 따른 충전/연료",
+        "옵션 팁": "빌트인캠·주차 패키지·HUD는 재판매 시에도 선호되는 경향",
+    },
+    {
+        "모델": "레이·캐스퍼 등 도심형",
+        "세그먼트": "경·초소형",
+        "만족 포인트": "주차·유지비·1~2인 실사용",
+        "흔한 지적": "적재·고속 주행은 SUV급과 차이",
+        "옵션 팁": "스마트키·열선·기본 ADAS는 이후 후회가 적은 편",
+    },
+]
+
+# 인기 차종별 상세(선택 시 표시). 요약 테이블 키「모델」과 동일해야 합니다.
+CAR_MODEL_DETAILS: dict[str, dict[str, str]] = {
+    "기아 셀토스": {
+        "특징": (
+            "**소형 SUV**에서 실내 체감 공간과 트렁드 활용도가 균형 있게 나오는 편입니다. "
+            "전고가 높아 **승·하차와 시야**가 좋고, 투싼·스포티지 대비 **도심 회차·주차 부담**은 덜한 경우가 많습니다. "
+            "파워트레인·서스펜션 세팅은 연식·등급마다 다르므로, 스펙만 보지 말고 **출퇴근·고속**을 나눠 시승하는 것이 중요합니다."
+        ),
+        "추천": (
+            "**첫 SUV·1대차**로 도심과 가끔 장거리를 겸할 때 무난한 선택지로 자주 거론됩니다. "
+            "가족 승차가 잦다면 **뒷좌석·트렁크 실측** 후 투싼과 비교하고, **ADAS 묶음**이 있는 트림/패키지를 우선 검토하세요. "
+            "중고까지 염두에 두면 **인기 색·인기 트림**이 매물·감가에 영향을 줍니다."
+        ),
+    },
+    "현대 코나": {
+        "특징": (
+            "**개성 있는 디자인**과 콤팩트한 차체로 도심 주행·주차에 유리합니다. "
+            "**순수 전기(EV)·하이브리드·가솔린** 등 동일 이름 아래 라인업이 나뉘어 있어, "
+            "연료·충전 환경에 따라 완전히 다른 차가 될 수 있습니다."
+        ),
+        "추천": (
+            "**1~2인·출퇴근 위주**에 디자인과 주차 편의를 중시하면 코나 쪽이 셀토스·투싼과 **다른 매력**을 줍니다. "
+            "전기 모델은 **집 충전·보조금·월 주행거리**를 숫자로 적어 본 뒤 가솔린과 총비용을 비교하세요. "
+            "뒷좌석·트렁크를 자주 쓰면 **투싼·셀토스 실측 비교**가 필수입니다."
+        ),
+    },
+    "현대 투싼": {
+        "특징": (
+            "**준중형 SUV**로 실내·적재 여유가 셀토스보다 큰 편입니다. "
+            "패밀리 1대차로 **장거리·시트·트렁크** 균형이 좋다는 평이 많고, "
+            "차체가 커 **좁은 곳 주차·유턴**은 SVU 소형 대비 부담이 될 수 있습니다."
+        ),
+        "추천": (
+            "**영유아 카시트·유모차**를 자주 싣거나 **뒷좌석 장시간 탑승**이 많다면 투싼·스포티지급을 먼저 보는 경우가 많습니다. "
+            "**가솔린·디젤·하이브리드**는 연비·정숙·잔진동 체감 차이가 커서 **두 번 이상 시승**을 권합니다. "
+            "예산 여유가 있으면 통풍시트·전동시트·공조 편의를 **시승차에서 직접** 확인하세요."
+        ),
+    },
+    "기아 스포티지": {
+        "특징": (
+            "투싼과 맞먹는 **준중형 SUV**로, 디자인·실내 마감 선호가 갈리는 대표 라이벌 관계입니다. "
+            "**장거리 승차감** 호평이 자주 보이며, 옵션을 쌓으면 **견적이 빠르게 상승**합니다."
+        ),
+        "추천": (
+            "투싼과 **동일 조건 견적**(등록비·캐시백·금리)으로 나란히 비교하는 것이 가장 안전합니다. "
+            "**패키지 단위 옵션**이 많아, 부분만 골라 담기 어려울 수 있으니 우선순위 리스트를 미리 적어 두세요. "
+            "브랜드·디자인 취향 외에는 **AS 거리·대리점 응대**도 후보에 넣으면 좋습니다."
+        ),
+    },
+    "경·소형 SUV (베뉴·티볼리 등)": {
+        "특징": (
+            "**가격·유지비** 부담이 상대적으로 낮고, **첫 차·세컨카**로 도심 위주 사용에 적합합니다. "
+            "**고속·NVH·고속 안정감**은 상위 세그먼트 대비 한계가 있다는 평이 흔합니다."
+        ),
+        "추천": (
+            "**예산 한정·단거리 위주**면 합리적 선택이 될 수 있습니다. "
+            "**잔존가율·프로모션·보증 조건**을 장기적으로 비교하고, 고속 주행이 잦다면 **한 클래스 위 시승**도 병행하세요. "
+            "옵션은 **안전·주차 보조**를 먼저 채우는 편이 후회가 적습니다."
+        ),
+    },
+    "제네시스 GV70 등 프리미엄 SUV": {
+        "특징": (
+            "**주행 질감·실내 소재·정숙성**에서 대중 브랜드와 차별화되는 경험을 목표로 한 세그먼트입니다. "
+            "**보험료·유지비·소모품 단가**가 함께 올라가므로 총소유비용(TCO) 관점이 필요합니다."
+        ),
+        "추천": (
+            "**브랜드·잔존가**를 중시하면 풀옵션보다 **중고 수요가 있는 패키지**(빌트인캠, 주차, HUD 등) 균형을 맞추는 전략도 있습니다. "
+            "전기·가솔린·디젤 선택은 **충전·주행 패턴·유가**를 몇 년 치 가정해 보고 결정하세요. "
+            "장기 렌트·리스 조건도 **공식 vs 금융사** 비교가 유효합니다."
+        ),
+    },
+    "레이·캐스퍼 등 도심형": {
+        "특징": (
+            "**초소형·박스형**에 가까워 협소 구역 주차·유턴에 강합니다. "
+            "1~2인 실사용·직배송·짧은 통근에 맞춘 **도심 특화** 성격이 강합니다."
+        ),
+        "추천": (
+            "**주차 지옥·출퇴근 단거리**가 최우선이면 만족도가 높을 수 있습니다. "
+            "가족 탑승·장거리·고속이 늘 계획이라면 **한 단계 큰 차급 시승**을 권합니다. "
+            "**열선·스마트키·기본 ADAS**는 재판매·일상 만족 모두에 도움이 되는 경우가 많습니다."
+        ),
+    },
+}
+
+CAR_MAINTENANCE_BY_TIMING: list[dict[str, str]] = [
+    {
+        "시기·주기": "**일상(매 주행 전후)**",
+        "점검·작업": "타이어 공기압, 와이퍼, 각종 램프, 브레이크 이상음",
+        "메모": "EV도 타이어 마모·공기압은 연비·안전에 직결.",
+    },
+    {
+        "시기·주기": "**1만 km 또는 6개월**(차종·오일 기준 상이)",
+        "점검·작업": "엔진오일·필터, 시각 점검(브레이크 패드 두께, 냉각수)",
+        "메모": "전기차는 **감속 회생**으로 패드 마모는 적을 수 있으나 점검은 동일하게.",
+    },
+    {
+        "시기·주기": "**2만~4만 km**",
+        "점검·작업": "에어클리너, 연료·점화 부주변(가솔린), 미션오일 면제 시기 확인",
+        "메모": "디젤은 **요소수·DPF** 운행 조건을 수시 확인.",
+    },
+    {
+        "시기·주기": "**4만~6만 km**",
+        "점검·작업": "브레이크 디스크 상태, 배터리(12V 보조), 플러그·코일 점검 시기",
+        "메모": "하이브리드·EV는 **12V 보조배터리** 교체 주기를 매뉴얼로 확인.",
+    },
+    {
+        "시기·주기": "**5만~8만 km / 연 1회**",
+        "점검·작업": "타이어 위치 교환(로테이션), 얼라인먼트(편마모 시), 에어컨 필터",
+        "메모": "편마모면 **추가각·쇼바** 원인부터 점검.",
+    },
+    {
+        "시기·주기": "**6만~10만 km**",
+        "점검·작업": "미션·디퍼 오일(해당 시), 워터펌프·벨트류 예방 점검",
+        "메모": "모델별로 **장수명 쿨런트**라도 누수·온도는 수시 확인.",
+    },
+    {
+        "시기·주기": "**전기차(EV) 추가**",
+        "점검·작업": "**고전압 배터리** 건강도·냉각, SW 업데이트, 충전 커넥터 이물",
+        "메모": "주행거리·충전 패턴은 **SOH·보증**과 연결 — 공식 센터 기록 유지 권장.",
+    },
+]
+
+CAR_EV_GUIDE_MARKDOWN: str = """
+##### 전기차(EV)를 고를 때 큰 줄기
+
+- **충전**: 집/직장 **완속** 가능 여부가 우선. 불가하면 **공용 급속** 위치·요금·대기 시간을 지도에 표시해 보세요.
+- **주행거리**: 켜둔 옵션(난방·고속)에 따라 **실주행은 표시의 60~85%** 수준으로 가정하는 편이 안전합니다.
+- **보조금·세제**: 연도·지역·차종별로 변동 — **구매 직전** 공식 공지·딜러 확인.
+- **배터리**: **용량(kWh)** 대신 **실사용 주행거리·보증 기간·SOH** 관련 조항을 매뉴얼·계약서에서 확인하세요.
+- **겨울**: 예열·주차 환경에 따라 **체력 저하**가 크니, 최악의 주간 패턴으로 시뮬레이션해 보세요.
+- **V2L·대용량**: 캠핑·재난 대비 **외부 전원**이 필요하면 지원 여부와 케이블 규격을 미리 체크.
+- **하이브리드와 비교**: 월 주행거리가 짧고 충전이 애매하면 **PHEV·HEV**가 총비용에서 유리할 수 있습니다.
+- **보험·수리**: EV는 **부품·수리단가**가 과거 대비 개선 추세지만 차종별 편차가 큼 — **보험료 견적**을 동일 조건으로 비교하세요.
+"""
+
+CAR_TIRE_TIPS_MARKDOWN: str = """
+##### 타이어·교체 꿀팁 (코스트코 및 일반)
+
+- **코스트코(코리아)**: 회원제 창고형 매장의 **타이어 센터**에서 브랜드별 프로모션·장착비 구조가 있을 수 있습니다. **지점·재고·가격은 시점별 상이** — 방문 전 앱/고객센터·지점 문의 권장.
+- **장착비·부가**: 타이어 가격 외 **마운트·밸런스·폐기·얼라인먼트** 분리 여부를 견적서에서 확인하세요. 얼라인은 **편마모·핸들 끌림** 있을 때만이 아니라, 교체 시 권장되는 경우가 많습니다.
+- **사이즈·부하**: 도어 스티커·매뉴얼의 **표기 사이즈·하중·속도지수**를 지키세요. 저가 대체 사이즈는 **ABS/ESC 튜닝**과 안 맞을 수 있습니다.
+- **계절**: 눈·빙판이 잦으면 **겨울용/올웨더**를 진지하게 검토. 미끄럼 한 번이 비용을 압도합니다.
+- **마모**: **마모 지시계**가 나왔으면 교체 검토. 불규칙 마모면 **교환만으로는 재발** — 쇼바·각 조정 필요할 수 있음.
+- **공기압**: 한 달에 한 번 차갑고 정지 상태에서 체크. EV는 **순간 토크**가 크고 차량 중량이 있어 타이어 마모가 빠른 편이라 **로테이션** 주기를 매뉴얼보다 앞당기는 오너도 있음.
+- **온라인 비교**: 동일 규격으로 **다나와·네이버·오토오아시스 등** 몇 군데 **총액(장착 포함)** 을 표로 적어보면 선택이 쉬워집니다.
+- **보관**: 스터드·계절 타이어는 **실내 습도 낮은 곳**, 햇빛 피해 수직 보관. 공기압을 약간 채워 변형 방지.
+"""
+
+CAR_SELTOS_FOCUS_MARKDOWN: str = """
+##### 지금 고민에 맞춘 체크 포인트 (셀토스)
+
+- **공간**: 가족·짐을 자주 싣는다면 뒷좌석·트렁크를 실측하고, 투싼·스포티지와 **같은 자세**로 비교하세요.
+- **파워트레인**: 라인업·연식별로 엔진·변속 조합이 다릅니다. **스펙표보다 시승**(출퇴근·고속)을 나눠 보는 것이 좋습니다.
+- **트림 vs 패키지**: 상위 트림은 **중고 매물 다양성**에도 영향을 줍니다. 순수 초기 비용만 보면 하위 트림+패키지가 유리해 보여도, 매각 시기를 생각하면 상위가 나을 수 있습니다.
+- **ADAS**: 차로 유지·전방 보조·후측방 등이 **패키지 묶음**인 경우가 많아, 부분만 선택하기 어렵습니다. 안전 관련은 **최우선**으로 두는 선택이 흔합니다.
+- **내비·폰**: 빌트인 내비 습관 vs 스마트폰 미러링을 시승 때 함께 맞춰 보세요.
+- **선루프·통풍·전동시트**: 계절·복장·출퇴근 패턴에 따라 체감이 큽니다. **시승차에 해당 옵션이 있는지** 확인 후 결정하세요.
+- **견적**: 등록비·캐시백·저금리 조합은 대리점마다 다릅니다. 2~3곳을 **동일 조건 표**로 적어 두고 비교하면 혼란이 줄어듭니다.
+"""
+
+CAR_OPTION_GUIDE_ROWS: list[dict[str, str]] = [
+    {
+        "상황": "출퇴근·학원 위주, 좁은 도로",
+        "추천 우선순위": "① 주차·전후방 보조 ② ADAS 기본 묶음 ③ 스마트키·열선",
+        "덜 우선": "대구경 휠(승차감·타이어 비용)",
+    },
+    {
+        "상황": "고속·장거리 많음",
+        "추천 우선순위": "① 크루즈·차로유지 등 고속 보조 ② 전동시트 ③ 연비·정숙(엔진 선택)",
+        "덜 우선": "과한 휠, 미사용 패키지",
+    },
+    {
+        "상황": "영유아·패밀리",
+        "추천 우선순위": "① 뒷좌석·트렁크 실측 ② 후석 공조 ③ ISOFIX 편의",
+        "덜 우선": "외형 위주 패키지",
+    },
+    {
+        "상황": "첫 차·예산 민감",
+        "추천 우선순위": "① 필수 안전 ② 중고 매물 많은 트림/색 ③ 보증·할인",
+        "덜 우선": "손실 큰 덜 쓰는 옵션",
+    },
+]
+
+CAR_REVIEW_PORTALS: list[dict[str, str]] = [
+    {"t": "보배드림", "u": "https://www.bobaedream.co.kr/", "d": "국내 오너 평·시세 감."},
+    {"t": "네이버 자동차", "u": "https://auto.naver.com/", "d": "뉴스·스펙."},
+    {"t": "다나와 자동차", "u": "https://auto.danawa.com/", "d": "가격·트림 비교."},
+    {"t": "클리앙 자동차", "u": "https://www.clien.net/service/board/cm_car", "d": "실사용 후기·질문."},
+]
+
+
+# 그룹 탭 7개 — 각 그룹 내부에서 서브탭으로 세분화
 # 새 기능을 추가할 때: 해당 그룹의 _render_group_* 함수에 서브탭만 추가하면 됩니다.
 _HOME_GROUP_SPEC: list[tuple[str, str]] = [
-    ("📊 시장",  "market"),  # 주식·환율·세계시각
     ("🏘 부동산", "realty"), # 실거래·계산기·관심단지
-    ("🌤️ 생활",  "life"),    # 날씨·뉴스
-    ("🐙 개발",  "dev"),     # GitHub·만화·웹툰
+    ("🌤️ 생활",  "life"),    # 날씨·뉴스·컴퓨터 가이드
+    ("🎯 취미",  "hobby"),  # 골프 등 레저
+    ("🐙 개발",  "dev"),     # IT·테크·GitHub (만화는 기타)
     ("🛍️ 쇼핑",  "shop"),    # 화장품·컴퓨터 가격비교
+    ("🚗 자동차", "auto"),   # 인기 차종·셀토스·옵션 가이드
     ("✈️ 기타",  "misc"),    # 여행 스케치·AI 에이전트
 ]
 
 _OPTION_MENU_STYLES: dict[str, Any] = {
     "container": {"padding": "0.35rem 0", "background-color": "transparent"},
-    "icon": {"font-size": "1.1rem", "color": "#c7d2fe"},
+    # 아이콘에 color를 주면 <a>의 선택/비선택 글자색을 덮어씀 → 크기만 지정하고 색은 부모 상속
+    "icon": {"font-size": "1.05rem"},
+    "menu-title": {"color": "#111827", "font-weight": "700"},
+    "menu-icon": {"font-size": "1.1rem", "color": "#111827"},
     "nav-link": {
-        "font-size": "0.95rem",
+        "font-size": "1rem",
         "text-align": "left",
-        "margin": "4px 0",
-        "padding": "0.55rem 0.65rem",
-        "border-radius": "10px",
-        "color": "#e0e7ff",
-        "background-color": "rgba(99, 102, 241, 0.12)",
+        "margin": "3px 0",
+        "padding": "0.58rem 0.68rem",
+        "border-radius": "8px",
+        "color": "#111827",
+        "background-color": "#ffffff",
+        "border": "1px solid #e5e7eb",
+        "--hover-color": "#f3f4f6",
     },
     "nav-link-selected": {
-        "background": "linear-gradient(165deg, #6366f1 0%, #4f46e5 100%)",
-        "font-weight": "600",
-        "color": "#fafaff",
-        "border-left": "3px solid #c7d2fe",
+        "background": "#111827",
+        "font-weight": "700",
+        "color": "#ffffff",
+        "border": "1px solid #111827",
     },
 }
 
@@ -2012,6 +2557,104 @@ def _render_tab_weather() -> None:
     )
 
 
+def _render_tab_it_news_trends() -> None:
+    st.subheader("📡 IT 뉴스·동향")
+    st.caption("해외·국내 **기술 뉴스·토론**을 한곳에서 열 수 있는 링크입니다. (유료·회원 정책은 각 사이트 기준)")
+    st.markdown(
+        """
+##### 해외
+- [Hacker News](https://news.ycombinator.com/) — 개발자·스타트업 이슈, 댓글 품질이 높은 편
+- [Lobsters](https://lobste.rs/) — 태그 기반 IT 링크(초대 필요할 수 있음)
+- [The Verge — Tech](https://www.theverge.com/tech) · [Ars Technica](https://arstechnica.com/) — 산업·정책·하드웨어
+- [GitHub Trending](https://github.com/trending) — 저장소 트렌드(일간·언어별)
+
+##### 국내
+- [ZDNet Korea](https://zdnet.co.kr/) · [IT동아](https://it.donga.com/) — 기업·정책·리뷰
+- [디지털타임스](https://www.dt.co.kr/) · [전자신문 인터넷](https://www.etnews.com/) — 산업 동향
+
+##### 커뮤니티·Q&A
+- [Stack Overflow](https://stackoverflow.com/) — 에러 메시지·언어별 태그 검색
+- [Reddit r/programming](https://www.reddit.com/r/programming/) — 링크 위주(해외 톤)
+- [클리앙 소모임 IT](https://www.clien.net/service/board/park) — 국내 사용자 시선(게시판 성격 상이)
+        """
+    )
+
+
+def _render_tab_it_tooling() -> None:
+    st.subheader("🛠️ 도구·개발 환경")
+    st.markdown(
+        """
+##### 에디터·IDE
+- **VS Code / Cursor / Windsurf**: 확장(ESLint, Python, Remote SSH)로 **언어·원격** 맞추기.
+- **JetBrains** 계열: 프로젝트가 크고 **리팩터·디버그** 비중이 크면 고려.
+
+##### 버전 관리
+- **Git**: `clone` · `branch` · `commit` · `pull/push` · **`.gitignore`** 로 비밀·대용량 제외.
+- **GitHub/GitLab**: PR·이슈·액션(CI) — 팀 단위면 **브랜치 규칙**을 문서로 남기기.
+
+##### OS·터미널
+- **Windows**: [WSL2](https://learn.microsoft.com/windows/wsl/)로 Linux 툴체인과 **경로 혼동**을 줄이기. **Windows Terminal** 탭·프로필 설정.
+- **macOS**: **Homebrew**로 CLI 도구 설치. **iTerm2** 선택 사항.
+- **Linux**: 패키지 매니저(`apt`/`dnf` 등) + **권한(sudo)** 습관 점검.
+
+##### 언어·런타임
+- **Python**: `venv` 또는 **uv/poetry**로 프로젝트별 격리. 전역 `pip install` 남용 주의.
+- **Node**: **nvm/fnm**으로 버전 전환. `node_modules` 용량·보안 업데이트 주기.
+
+##### NAS·Docker(이 포털 사용자 기준)
+- 컨테이너는 **이미지 태그·볼륨 마운트**를 문서화해 두면 재현이 쉬움. **호스트 경로 vs 컨테이너 경로** 혼동 주의.
+        """
+    )
+
+
+def _render_tab_it_cloud_infra() -> None:
+    st.subheader("☁️ 클라우드·인프라(입문 감각)")
+    st.markdown(
+        """
+##### IaaS / PaaS 한 줄
+- **AWS·Azure·GCP**: **무료 티어**는 조건·기간이 바뀌기 쉬움 — 가입 시 **과금 알림·예산** 설정.
+- **VPS**(DigitalOcean, Linode, 국내 호스팅): 소규모 웹·VPN·봇에 흔함. **스냅샷·백업** 옵션 확인.
+
+##### 컨테이너
+- **Docker**: 앱+의존성을 **이미지**로 묶음. **Dockerfile**은 재현성의 핵심.
+- **Compose**: 여러 컨테이너 **로컬·소규모 서버** 오케스트레이션에 편함.
+- **Kubernetes**: 서비스가 커지고 **롤링 업데이트·헬스체크**가 필요해질 때 검토(러닝 커브 큼).
+
+##### 네트워크·웹
+- **리버스 프록시**: Nginx, Caddy — **TLS 종료**·정적 파일·업스트림 분기.
+- **DNS**: 도메인 **A/AAAA/CNAME** 이해. **CDN**(Cloudflare 등)은 캐시·DDoS緩和에 도움될 수 있음.
+
+##### 관측
+- **로그**: stdout 수집 vs 파일 마운트 — 디스크 풀 방지(**로그 로테이션**).
+- **메트릭**: Prometheus+Grafana는 **자기호스팅**에서도 자주 쓰임(리소스 요구 있음).
+        """
+    )
+    st.info("클라우드 비용은 **몇 분 만에** 누적될 수 있습니다. 실험 후 **리소스 삭제** 습관을 들이세요.", icon="💡")
+
+
+def _render_tab_it_security_privacy() -> None:
+    st.subheader("🔐 보안·프라이버시(일상 IT)")
+    st.markdown(
+        """
+##### 비밀번호·2FA
+- **비밀번호 관리자**(Bitwarden, 1Password, KeePass 등): **사이트마다 다른 비밀번호** + 길게.
+- **2FA**: TOTP 앱(**Aegis**, Google Authenticator 등) 또는 **하드웨어 키**(YubiKey). **SMS 2FA**는 SIM 스와핑에 상대적으로 취약.
+- **백업 코드**는 **오프라인** 안전한 곳에 보관.
+
+##### 통신·VPN
+- **공용 Wi-Fi**: 금융·회사 업무는 **VPN** 또는 **셀룰러 핫스팟**을 고려. VPN 업체는 **로그 정책·감사**를 확인.
+- **HTTPS 자물쇠**만으로는 **피싱 사이트**를 막지 못함 — **도메인 철자**·북마크 사용.
+
+##### 소프트웨어·OS
+- **업데이트**: OS·브라우저·펌웨어. **0-day** 대응의 기본.
+- **권한**: 앱이 **연락처·파일**을 왜 요구하는지 의심. 모바일 **앱 권한** 최소화.
+
+##### 홈랩·NAS
+- **관리자 포트**를 인터넷에 직접 노출하지 않기 — **VPN·리버스 프록시·방화벽**으로 제한.
+- **기본 비밀번호** 변경, **2FA** 가능하면 켜기. **랜섬웨어** 대비 **오프사이트 백업** 한 벌.
+        """
+    )
+
 
 def _render_tab_github() -> None:
     st.header("GitHub 덴")
@@ -2159,20 +2802,223 @@ def _render_tab_fx() -> None:
         cap += " · 출처: 내장 샘플"
     st.caption(cap)
 
+    st.markdown("---")
+    st.subheader("🔮 USD/KRW 단기 참고 예측")
+    st.caption(
+        "Yahoo Finance 일봉(`KRW=X`)으로 **최근 N거래일 로그-선형 추세**를 맞춘 뒤, 다음 영업일 구간을 **통계적으로 외삽**합니다. "
+        "밴드는 회귀 잔차 표준편차에 비례한 **단순 구간**입니다. "
+        "**실제 거래·고시 환율과 다르며**, 뉴스·금리·지정학에 환율이 크게 흔들릴 수 있어 **교육·감각용**으로만 보세요."
+    )
+    cpa, cpb, cpc = st.columns(3)
+    with cpa:
+        fx_hist_period = st.selectbox("과거 일봉 구간", ["1y", "2y", "5y"], index=1, key="fx_pred_yf_period")
+    with cpb:
+        fx_horizon = st.slider("예측 영업일 수", 5, 60, 20, key="fx_pred_horizon_days")
+    with cpc:
+        fx_fit_w = st.slider("추세 적합 거래일 수", 40, 252, 120, key="fx_pred_fit_window")
+    if st.button("일봉 캐시 비우기", key="fx_pred_clear_yf_cache"):
+        _fx_yahoo_krw_x_close_series.clear()
+        st.rerun()
+
+    hist_s = _fx_yahoo_krw_x_close_series(fx_hist_period)
+    if hist_s is None:
+        st.warning("Yahoo Finance에서 USD/KRW 일봉을 가져오지 못했습니다. 네트워크·방화벽·yfinance 설치를 확인해 주세요.")
+    else:
+        fc = _fx_forecast_krw_per_usd_log_linear(
+            hist_s,
+            horizon_days=int(fx_horizon),
+            fit_window=int(fx_fit_w),
+        )
+        if fc is None:
+            st.info("데이터가 부족해 예측을 계산하지 못했습니다. 구간을 넓혀 보세요.")
+        else:
+            st.caption(
+                f"적합 표본 **{fc['fit_n']}**거래일 · 로그추세 R²≈**{fc['r2_log']:.3f}** · "
+                f"마지막 종가 **{fc['last_close']:,.2f}**원/$ ({fc['last_date'].strftime('%Y-%m-%d')})"
+            )
+            m1, m2, m3 = st.columns(3)
+            with m1:
+                st.metric(
+                    f"예측 종가일 ({fc['dates'][-1].strftime('%Y-%m-%d')}) 중앙",
+                    f"{float(fc['mid'][-1]):,.2f} 원/$",
+                )
+            with m2:
+                st.metric("같은 날 밴드 하단(참고)", f"{float(fc['lo'][-1]):,.2f} 원/$")
+            with m3:
+                st.metric("같은 날 밴드 상단(참고)", f"{float(fc['hi'][-1]):,.2f} 원/$")
+
+            tail_n = min(300, len(hist_s))
+            tail = hist_s.iloc[-tail_n:]
+            if go is not None:
+                fig_fx = go.Figure()
+                fig_fx.add_trace(
+                    go.Scatter(
+                        x=tail.index,
+                        y=tail.values,
+                        name="종가(과거)",
+                        line=dict(color="#64748b", width=1.2),
+                    )
+                )
+                xd = fc["dates"]
+                fig_fx.add_trace(
+                    go.Scatter(
+                        x=xd,
+                        y=fc["hi"],
+                        mode="lines",
+                        line=dict(width=0),
+                        showlegend=False,
+                        hoverinfo="skip",
+                    )
+                )
+                fig_fx.add_trace(
+                    go.Scatter(
+                        x=xd,
+                        y=fc["lo"],
+                        mode="lines",
+                        line=dict(width=0),
+                        fill="tonexty",
+                        fillcolor="rgba(37,99,235,0.18)",
+                        name="대략 밴드",
+                    )
+                )
+                fig_fx.add_trace(
+                    go.Scatter(
+                        x=xd,
+                        y=fc["mid"],
+                        name="예측(중앙)",
+                        line=dict(color="#2563eb", width=2, dash="dash"),
+                    )
+                )
+                fig_fx.update_layout(
+                    height=420,
+                    margin=dict(t=28, b=40, l=48, r=24),
+                    legend=dict(orientation="h", y=1.08, x=0, font=dict(size=11)),
+                    yaxis=dict(title="원 / 1 USD", gridcolor="rgba(148,163,184,0.2)"),
+                    xaxis=dict(gridcolor="rgba(148,163,184,0.2)"),
+                    paper_bgcolor="rgba(255,255,255,0)",
+                    plot_bgcolor="rgba(248,250,252,0.9)",
+                )
+                st.plotly_chart(fig_fx, use_container_width=True, config={"displayModeBar": True})
+            elif pd is not None:
+                st.line_chart(
+                    pd.DataFrame({"과거": tail, "예측중앙": pd.Series(fc["mid"], index=fc["dates"])}),
+                    use_container_width=True,
+                )
+            else:
+                st.caption("Plotly·pandas가 없어 차트 대신 위 수치만 표시합니다.")
+
+            with st.expander("예측 일별 표 (영업일)", expanded=False):
+                tbl = pd.DataFrame(
+                    {
+                        "영업일": [x.strftime("%Y-%m-%d") for x in fc["dates"]],
+                        "중앙(원/$)": [round(float(x), 2) for x in fc["mid"]],
+                        "하단(원/$)": [round(float(x), 2) for x in fc["lo"]],
+                        "상단(원/$)": [round(float(x), 2) for x in fc["hi"]],
+                    }
+                )
+                st.dataframe(tbl, use_container_width=True, hide_index=True)
 
 
 def _render_tab_clocks() -> None:
-    st.header("글로벌 시각")
+    st.header("글로벌 시각 · 투자 허브")
     st.caption(
-        "포털 US 리포트와 같이 볼 때 시차 확인용입니다. "
-        "증시 일정·휴장은 브로커·거래소 캘린더를 따르세요."
+        "주요 증시·선물 거점의 **현재 시각**과 **지도**를 함께 봅니다. "
+        "휴장·서머타임·단축장은 거래소 캘린더를 따르세요."
     )
-    c1, c2, c3, c4 = st.columns(4)
-    for col, (label, zid) in zip((c1, c2, c3, c4), CLOCK_ZONES):
-        with col:
-            t = datetime.now(ZoneInfo(zid))
-            st.metric(label, t.strftime("%m-%d %H:%M"))
-            st.caption(zid.split("/")[-1])
+
+    with st.container(border=True):
+        st.markdown("##### 어디를 주로 보면 좋을까? (한국 투자자 기준)")
+        st.markdown(
+            """
+| 우선순위 | 거점 | 왜 보나 |
+|:---|:---|:---|
+| **1** | **미국 (뉴욕·시카고)** | 글로벌 금리·빅테크·**야간 선물·전일 증시**가 다음날 **코스피·환율 심리**에 가장 크게 스며듦. |
+| **2** | **서울** | **현물·ETF** 실제 매매 시간. 장중 뉴스·수급의 기준. |
+| **3** | **일본** | 아시아에서 가장 먼저 움직이는 축. **엔·반도체·리스크온/오프** 감각. |
+| **4** | **홍콩·중국(상해)** | **H주·ADR·무역·원자재** 등 중국 성장·정책 뉴스의 전초. |
+| **5** | **영국(런던)** | **FX·유럽장**. 한국 **아침**에 유럽 마감·미국 프리마켓 뉴스가 겹치는 시간대. |
+
+**홍콩 vs 미국?** 둘 다 중요하지만, 보통 **미국 증시·금리 → 그다음 날 아시아** 순으로 **심리·자금 흐름**이 전파되는 경우가 많습니다. 홍콩은 **중국·H주** 비중이 클 때 더 민감합니다.
+            """
+        )
+
+    hub_rows: list[dict[str, Any]] = []
+    lats: list[float] = []
+    lons: list[float] = []
+    map_text: list[str] = []
+    map_colors: list[str] = []
+
+    _hub_color: dict[str, str] = {
+        "서울": "#2563eb",
+        "도쿄": "#2563eb",
+        "홍콩": "#2563eb",
+        "상해": "#2563eb",
+        "런던": "#059669",
+        "그리니치(UTC)": "#64748b",
+        "뉴욕": "#7c3aed",
+        "시카고": "#7c3aed",
+    }
+
+    for label, zid, la, lo, role in INVESTMENT_WORLD_HUBS:
+        try:
+            zi = ZoneInfo(zid)
+        except Exception:
+            zi = ZoneInfo("UTC")
+        t = datetime.now(zi)
+        ts = t.strftime("%m-%d %H:%M")
+        hub_rows.append({"도시": label, "현지 시각": ts, "역할": role, "TZ": zid})
+        lats.append(la)
+        lons.append(lo)
+        map_text.append(f"{label}  {ts}")
+        map_colors.append(_hub_color.get(label, "#64748b"))
+
+    if pd is not None:
+        st.dataframe(pd.DataFrame(hub_rows), use_container_width=True, hide_index=True)
+    else:
+        st.json(hub_rows)
+
+    if go is not None:
+        fig_geo = go.Figure(
+            data=[
+                go.Scattergeo(
+                    lon=lons,
+                    lat=lats,
+                    text=map_text,
+                    mode="markers+text",
+                    textposition="top center",
+                    marker=dict(
+                        size=12,
+                        color=map_colors,
+                        line=dict(width=1.5, color="#ffffff"),
+                        opacity=0.92,
+                    ),
+                    hovertemplate="%{text}<extra></extra>",
+                )
+            ]
+        )
+        fig_geo.update_layout(
+            title=dict(text="주요 투자·거래 거점 (현지 시각은 표·마커 참고)", font=dict(size=14)),
+            height=460,
+            margin=dict(l=0, r=0, t=48, b=0),
+            geo=dict(
+                projection=dict(type="natural earth"),
+                showland=True,
+                landcolor="#f1f5f9",
+                showocean=True,
+                oceancolor="#e0f2fe",
+                showcountries=True,
+                countrycolor="#cbd5e1",
+                resolution=110,
+                lonaxis=dict(range=[-170, 180]),
+                lataxis=dict(range=[-55, 72]),
+            ),
+            paper_bgcolor="rgba(255,255,255,0)",
+        )
+        st.plotly_chart(fig_geo, use_container_width=True, config={"displayModeBar": True})
+        st.caption("마커 색: **파랑** 아시아권 · **초록** 유럽·중동권 · **보라** 미주.")
+    else:
+        st.info("Plotly가 없어 세계 지도는 생략됩니다. 표의 시각만 참고하세요.")
+
     st.markdown("---")
     st.subheader("미국 주식 정규장 (NYSE · 참고)")
     hint_title, hint_body = nyse_regular_session_hint()
@@ -2340,28 +3186,28 @@ def _render_tab_asset_sim() -> None:  # noqa: PLR0912, PLR0914, PLR0915
     # ── 인사이트 배너 ──
     st.markdown(
         """
-<div style="padding:1rem 1.15rem 1.15rem;border-radius:16px;
-background:linear-gradient(160deg,rgba(79,70,229,0.32) 0%,rgba(49,46,129,0.85) 100%);
-border-left:4px solid #818cf8;margin-bottom:0.75rem;">
-<p style="margin:0 0 0.55rem;font-size:1.05rem;font-weight:700;color:#e0e7ff;">
+<div style="padding:1.1rem 1.2rem 1.2rem;border-radius:16px;
+background-color:#e8f2ff;border:1px solid #bfdbfe;border-left:5px solid #60a5fa;
+margin-bottom:0.85rem;box-shadow:0 1px 3px rgba(15,23,42,0.06);">
+<p style="margin:0 0 0.55rem;font-size:1.08rem;font-weight:800;color:#0c4a6e;letter-spacing:-0.02em;">
 🧠 이 시뮬레이터가 바라보는 방식</p>
 
-<p style="margin:0 0 0.35rem;color:#c7d2fe;font-size:0.96rem;">
-<b>① 실질 수익률 = 명목 상승률 − 물가 상승률</b><br>
-모든 금액은 물가를 차감한 <u>실질 가치(오늘의 구매력)</u>로 표시합니다.<br>
-부동산 연 +1% · 물가 +2.5% → 실질 <b style="color:#f87171;">−1.5%</b> &nbsp;|&nbsp;
-예금 +3% · 물가 +2.5% → 실질 <b style="color:#34d399;">+0.5%</b></p>
+<p style="margin:0 0 0.45rem;color:#1e293b;font-size:0.98rem;line-height:1.55;">
+<b style="color:#0f172a;">① 실질 수익률 = 명목 상승률 − 물가 상승률</b><br>
+모든 금액은 물가를 차감한 <u style="color:#0e7490;">실질 가치(오늘의 구매력)</u>로 표시합니다.<br>
+부동산 연 +1% · 물가 +2.5% → 실질 <b style="color:#b91c1c;">−1.5%</b> &nbsp;|&nbsp;
+예금 +3% · 물가 +2.5% → 실질 <b style="color:#047857;">+0.5%</b></p>
 
-<p style="margin:0 0 0.35rem;color:#c7d2fe;font-size:0.96rem;">
-<b>② 전세의 진짜 비용 = 기회비용</b><br>
+<p style="margin:0 0 0.45rem;color:#1e293b;font-size:0.98rem;line-height:1.55;">
+<b style="color:#0f172a;">② 전세의 진짜 비용 = 기회비용</b><br>
 전세는 월세 대신 목돈을 맡기는 구조입니다.
-그 돈을 투자했다면 얻을 수익이 <u>사라진 기회비용</u>이며, 이것이 실질 월세입니다.<br>
-예) 전세금 3억 × 연 5% ÷ 12 = 월 <b style="color:#fbbf24;">125만원</b> 기회비용<br>
+그 돈을 투자했다면 얻을 수익이 <u style="color:#0e7490;">사라진 기회비용</u>이며, 이것이 실질 월세입니다.<br>
+예) 전세금 3억 × 연 5% ÷ 12 = 월 <b style="color:#b45309;">125만원</b> 기회비용<br>
 집주인 입장에서는 무이자 대출을 받아 그 돈을 운용하는 구조입니다.</p>
 
-<p style="margin:0;color:#a5b4fc;font-size:0.88rem;">
-📌 차트 선이 <b>상승</b> = 실질 구매력 증가 &nbsp;|&nbsp;
-<b>수평</b> = 물가만큼만 유지 &nbsp;|&nbsp; <b>하락</b> = 실질 손실</p>
+<p style="margin:0;color:#334155;font-size:0.9rem;line-height:1.45;">
+📌 차트 선이 <b style="color:#0f172a;">상승</b> = 실질 구매력 증가 &nbsp;|&nbsp;
+<b style="color:#0f172a;">수평</b> = 물가만큼만 유지 &nbsp;|&nbsp; <b style="color:#0f172a;">하락</b> = 실질 손실</p>
 </div>
         """,
         unsafe_allow_html=True,
@@ -3122,7 +3968,6 @@ border-left:4px solid #818cf8;margin-bottom:0.75rem;">
                 legend=dict(
                     orientation="h", y=1.18, x=0.5, xanchor="center",
                     bgcolor="rgba(0,0,0,0)", font=dict(size=10),
-                    itemgap=8,
                 ),
                 showlegend=True,
             )
@@ -3376,9 +4221,9 @@ def _render_tab_mid() -> None:
 
 
 def _render_tab_cosmetics_compare() -> None:
-    """채널별 목업 가격 표 — 외부 쇼핑몰 API 미연동."""
+    """채널별 샘플 가격 표 — 외부 쇼핑몰 API 미연동."""
 
-    st.header("💄 화장품 가격비교 (목업)")
+    st.header("💄 화장품 가격비교")
     st.caption(
         "**카테고리**를 고른 뒤 표에서 채널별 예시 가격을 비교해 보세요. 아래 링크는 참고용입니다."
     )
@@ -3403,7 +4248,7 @@ def _render_tab_cosmetics_compare() -> None:
     elif rows:
         st.table(rows)
     else:
-        st.info("이 카테고리에는 목업 행이 없습니다.")
+        st.info("이 카테고리에는 샘플 행이 없습니다.")
 
     st.divider()
     st.subheader("🔗 주요 비교·구매 채널 (링크)")
@@ -3413,9 +4258,9 @@ def _render_tab_cosmetics_compare() -> None:
 
 
 def _render_tab_pc_compare() -> None:
-    """제품군별 목업 가격 표 — 다나와 등 외부 실시간 데이터 미연동."""
+    """제품군별 샘플 가격 표 — 다나와 등 외부 실시간 데이터 미연동."""
 
-    st.header("💻 컴퓨터 가격비교 (목업)")
+    st.header("💻 컴퓨터 가격비교")
     st.caption(
         "**제품군**을 고른 뒤 채널별 **참고 가격(가상)** 을 비교해 보세요. 아래 링크로 실제 최저가를 확인할 수 있습니다."
     )
@@ -3440,13 +4285,329 @@ def _render_tab_pc_compare() -> None:
     elif rows:
         st.table(rows)
     else:
-        st.info("이 카테고리에는 목업 행이 없습니다.")
+        st.info("이 카테고리에는 샘플 행이 없습니다.")
 
     st.divider()
     st.subheader("🔗 가격 비교·구매 채널 (링크)")
     with _st_try_border_container():
         for it in PC_PRICE_PORTALS:
             st.markdown(f"**[{it['t']}]({it['u']})** — {it['d']}")
+
+
+def _render_tab_life_pc() -> None:
+    """생활 그룹 — 컴퓨터: 가격대·인기 세그먼트·추천 사양·ML GPU (참고용)."""
+
+    st.header("💻 컴퓨터 · 시장 참고")
+    st.caption(
+        "국내 커뮤니티·유통 경향을 **요약한 참고용**입니다. 실구매 전 **다나와·쇼핑몰**에서 최신가를 확인하세요."
+    )
+    st.info(
+        "숫자가 들어 있는 **가격 비교 데모 표**는 **쇼핑 → 💻 컴퓨터** 탭에 있습니다.",
+        icon="🛒",
+    )
+
+    st.subheader("평균적으로 보는 가격대(대략)")
+    if pd is not None:
+        st.dataframe(
+            pd.DataFrame(LIFE_PC_AVG_PRICE_BANDS),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        for row in LIFE_PC_AVG_PRICE_BANDS:
+            st.markdown(f"**{row.get('구분', '')}** — {row.get('가격대(참고)', '')}")
+            st.caption(row.get("비고", ""))
+
+    st.divider()
+    st.subheader("요즘 잘 나가는 제품·세그먼트 경향")
+    if pd is not None:
+        st.dataframe(
+            pd.DataFrame(LIFE_PC_POPULAR_SEGMENTS),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        for row in LIFE_PC_POPULAR_SEGMENTS:
+            st.markdown(f"**{row.get('카테고리', '')}**: {row.get('요즘 잘 나가는 유형', '')}")
+            st.caption(row.get("한 줄", ""))
+
+    st.divider()
+    st.subheader("요즘 맞춰 쓰기 좋은 사양(추천 기준)")
+    st.markdown(LIFE_PC_SPEC_RECOMMEND_MARKDOWN)
+
+    st.divider()
+    st.subheader("머신러닝·딥러닝용 그래픽카드 — 어떻게 고르면 좋은지")
+    st.caption(
+        "**VRAM 용량·CUDA(또는 ROCm) 지원·전력(PSU)** 이 세 가지를 먼저 맞추고, 그 다음 세대·가격을 보는 순서를 추천합니다."
+    )
+    if pd is not None:
+        st.dataframe(
+            pd.DataFrame(LIFE_PC_ML_GPU_GUIDE),
+            use_container_width=True,
+            hide_index=True,
+        )
+    else:
+        for row in LIFE_PC_ML_GPU_GUIDE:
+            st.markdown(f"**{row.get('용도·예산 느낌', '')}**")
+            st.markdown(row.get("추천 GPU 성향", ""))
+            st.caption(row.get("메모", ""))
+
+    st.divider()
+    st.subheader("실시간 가격·스펙 비교 링크")
+    with _st_try_border_container():
+        for it in PC_PRICE_PORTALS:
+            st.markdown(f"**[{it['t']}]({it['u']})** — {it['d']}")
+
+
+def _render_tab_golf() -> None:
+    """생활 그룹 — 골프: 기본 상식·경남·부킹·비용(참고)."""
+
+    st.header("⛳ 골프 · 기본 & 경남·부산권 부킹")
+    st.caption(
+        "직장인이 **저렴한 라운딩·티타임**을 잡는 방법, **부킹**의 뜻, **회원권·레슨·인원**별 비용 감을 "
+        "한곳에 정리했습니다. 금액은 **시기·요일·날씨에 따라 크게 달라지므로** 반드시 **당일 앱·전화**로 확인하세요."
+    )
+    st.warning(
+        "아래 숫자는 **국내에서 흔히 나오는 참고 범위**이며, 특정 골프장 가격표가 **아닙니다**. "
+        "투자·매매 조언이 아닙니다.",
+        icon="⚠️",
+    )
+
+    gt1, gt2, gt3, gt4 = st.tabs(["📘 기본 상식", "🗺️ 경남·부산권 부킹", "💰 비용·인원", "🔗 예약·정보 채널"])
+
+    with gt1:
+        st.markdown(
+            """
+##### 골프를 처음 접할 때 알아두면 좋은 것
+- **라운딩**: 실제 필드(코스)에서 18홀(또는 9홀)을 도는 것. 이동·시간(보통 반나절~)·체력이 필요합니다.
+- **스크린·연습장**: 실내 스크린골프는 **시간제(베이당)** 로 치며, 필드와 느낌·룰이 다를 수 있습니다. 비용·접근은 보통 스크린이 더 부담이 적습니다.
+- **티타임(Tee time)**: 출발 시간대. 예약은 **이 티타임을 확보**한다는 뜻으로, 골프장마다 슬롯이 다릅니다.
+- **그린피(Green fee)**: 당일 코스 이용료(비회원·일일 기준으로 자주 표기). **카트·캐디**는 별도인 곳이 많습니다.
+- **회원권**: 특정 클럽 **장기 이용·우선 예약**을 위한 권리(양도·가격은 시장·규정 따름). **연회비·입장료**는 별도인 경우가 흔합니다.
+- **에티켓**: 다른 조의 티타임을 밀지 않기, 느린 플레이는 양해·통과 요청, 디봇(잔디) 복구, 모래 살짝 등 **코스 보호**가 기본입니다.
+            """
+        )
+        st.info(
+            "**부킹(booking)** 은 골프 용어로 **「라운딩할 날짜·시간대(티타임)를 미리 예약하는 것」** 입니다. "
+            "숙소 예약과 같이 **‘자리를 선점’** 한다는 의미에 가깝고, **“가장 싼 가격이 자동 보장”** 은 아닙니다.",
+            icon="📌",
+        )
+
+    with gt2:
+        st.markdown("##### 왜 경남·창원·김해·부산·진주를 같이 보나")
+        st.caption(
+            "이동 거리·주말 교통·가격대가 비슷한 **동일 생활권**으로 묶어 보면, 평일 조조·야간 이동 전략을 세우기 좋습니다."
+        )
+        st.markdown(
+            """
+- **창원**: 직장 기준으로 **당일 왕복** 가능한 코스를 고를 때, **출발·복귀 시간**을 티타임에 맞추는 게 핵심입니다. **평일 오전·한가한 요일**이 상대적으로 여유 있습니다.
+- **김해**: 공항·광역 접근이 좋아 **출장 다음 날 라운딩**을 짜기도 합니다. **지역 카페·동호회**에서 ‘조인(합류)’ 정보가 올라오기도 합니다.
+- **부산**: **광역시 안·인근(기장·양산 방향 등)** 으로 선택지가 넓습니다. **주말·공휴일**은 티타임 경쟁이 세니 **2~3주 전**부터 앱·전화로 확인하는 편이 안전합니다.
+- **진주·내륙(거창·산청 등)**: 창원에서 **차로 1~2시간대**가 되는 경우가 많아, **하루 일정**으로 묶거나 숙박·연휴에 맞추는 경우가 있습니다. **가격·여유**는 필드마다 차이가 큽니다.
+
+**직장인·저렴하게 노리는 팁(일반론)**  
+- **평일 조조**(이른 티타임): 주말 대비 그린피·혼잡이 유리한 경우가 많습니다. 출근 전·반차와 맞춰야 합니다.  
+- **비수기·날씨 리스크**: 겨울·장마·한파 직후 등은 수요가 줄어 **프로모션**이 붙기도 하지만, 코스 상태는 직접 확인이 필요합니다.  
+- **2~3명만 갈 때**: 4명 **조인**이 기본인 클럽이 많아, **부족 인원 요금·랜덤 조인** 규정을 예약 시 물어보세요.  
+- **스크린으로 먼저**: 주 1회 스크린으로 **스윙·거리감**만 유지하고, 월 1회 필드로 가는 식이 비용·시간 균형이 잘 맞는 경우가 많습니다.
+            """
+        )
+
+    with gt3:
+        st.markdown("##### 비용을 볼 때 체크리스트")
+        st.markdown(
+            "- **그린피만**인지, **카트(2인1조/1인1카트)·캐디·락카**가 포함·별도인지 표를 꼭 봅니다.\n"
+            "- **주말·공휴일·오전대**는 같은 코스라도 **큰 폭**으로 비쌀 수 있습니다.\n"
+            "- **레슨**: 실내 스튜디오·연습장·필드 레슨·프로 지명 여부에 따라 **단가가 완전히 다릅니다**."
+        )
+        _golf_cost_rows = [
+            {
+                "항목": "비회원 일일 라운딩(그린피 위주)",
+                "대략 범위(참고)": "평일·시즌·등급에 따라 **약 8만~35만원+** / 1인",
+                "비고": "카트·캐디 별도. 주말·명절은 상한이 훨씬 올라갈 수 있음",
+            },
+            {
+                "항목": "스크린골프(베이·시간)",
+                "대략 범위(참고)": "**약 2만~5만원**/시간대·매장 (2인 분담 시 인당 절반)",
+                "비고": "심야·평일 할인, 회원권·충전형이 있으면 더 저렴",
+            },
+            {
+                "항목": "프로 레슨(1회·1:1)",
+                "대략 범위(참고)": "**약 6만~20만원+**/회 (30~60분)",
+                "비고": "필드 동반·그룹 레슨은 1인당 단가가 낮아지는 경우 많음",
+            },
+            {
+                "항목": "회원권(취득)",
+                "대략 범위(참고)": "클럽·권종에 따라 **수천만~수억 원** + 연회비",
+                "비고": "양도·담보·세금은 전문 자료 확인. ‘저렴 라운딩’과 별개로 **대출·유동성 리스크** 큼",
+            },
+            {
+                "항목": "인원(4명 스타트)",
+                "대략 범위(참고)": "보통 **4명이 1조**; 2~3명이면 **조인·추가요금** 문의",
+                "비고": "‘1인당 ○만원’이 아니라 **조·시간대·옵션 합산**으로 보는 게 안전",
+            },
+        ]
+        if pd is not None:
+            st.dataframe(pd.DataFrame(_golf_cost_rows), use_container_width=True, hide_index=True)
+        else:
+            for row in _golf_cost_rows:
+                st.markdown(f"**{row['항목']}** — {row['대략 범위(참고)']}")
+                st.caption(row["비고"])
+        st.caption(
+            "**장소·회원권·레슨·인원별 비용** 은 위 표처럼 **항목을 나눠 보면** 정리하기 좋습니다. "
+            "실제 견적은 **해당 장의 당일 공지**가 정답입니다."
+        )
+
+    with gt4:
+        st.markdown("##### 예약·정보를 찾을 때(자주 쓰는 흐름)")
+        st.markdown(
+            "1. **네이버 지도 / 네이버 검색**에 골프장명 → **전화번호·공식 예약 페이지** 확인  \n"
+            "2. **해당 골프장 공식 홈페이지·대표번호**로 티타임(부킹) — 가장 정확한 **잔여·요금**  \n"
+            "3. **스마트스코어·골프다이어리** 등 앱 — 스코어·코스 정보·일부 예약 연동(앱마다 상이)  \n"
+            "4. **지역 골프 카페·동호회·오픈채팅** — 조인·교통편·주차 팁(검증은 본인 책임)  \n"
+            "5. **대형 마켓·여행사형 골프 패키지** — 숙박+라운딩 묶음은 **취소 규정**을 꼭 확인"
+        )
+        st.markdown("##### 웹·앱 링크(일반)")
+        st.markdown(
+            "- [네이버 지도](https://map.naver.com/) — 장소·전화·리뷰 확인  \n"
+            "- [스마트스코어](https://www.smartscore.kr/) — 대회·코스·앱 안내  \n"
+            "- [한국골프협회 KGA](https://www.kga.or.kr/) — 대회·규정·교육(참고)  \n"
+            "- [골프존](https://www.golfzon.com/) — 스크린·브랜드별 매장 검색에 활용"
+        )
+        st.info(
+            "**창원 중심·김해·부산·진주** 까지 저렴한 예약을 넓게 찾을수록 선택지는 늘지만, "
+            "**이동비·피로**도 같이 늘어납니다. 우선 **창원 출발 기준 왕복 1시간 이내** 후보를 지도에 찍고, "
+            "**평일 조조** 위주로 전화·앱을 비교해 보는 방식을 추천합니다.",
+            icon="💡",
+        )
+
+
+def _render_tab_camping() -> None:
+    st.header("🏕️ 캠핑 · 입문~주말 나들이")
+    st.caption("장비·예약·에티켓 참고입니다. **화기·쓰레기·소음** 규정은 캠핑장마다 다릅니다.")
+    c1, c2, c3 = st.tabs(["입문 체크", "예약·정보", "시즌·매너"])
+    with c1:
+        st.markdown(
+            """
+##### 처음 갈 때
+- **숙박 형태**: 오토캠(차 옆)·글램핑·카라반 대여 등 **부담이 적은 것**부터 경험해 보기.
+- **필수 느낌**: 방수포·랜턴·의자·버너(또는 전기)·쓰레기봉투·물. **밤 기온**은 낮보다 많이 떨어집니다.
+- **안전**: 일산화탄소·화상·연료 보관. **텐트 안 화기 금지**가 기본입니다.
+- **전기**: 사이트에 **콘센트 유무·와트 제한** 확인(포터블 전원·멀티탭 남용 주의).
+            """
+        )
+    with c2:
+        st.markdown(
+            """
+##### 예약·검색
+- 지도 앱에서 **‘캠핑장’** 검색 후 **전화·네이버 예약**으로 잔여 확인.
+- 성수기·연휴는 **수 주~한 달 전**부터 매진이 흔합니다.
+- **반려동물·총성(입영)** 가능 여부는 사이트마다 다릅니다.
+            """
+        )
+        st.markdown(
+            "- [네이버 지도](https://map.naver.com/) — **캠핑장** 검색·전화·리뷰\n"
+            "- [한국관광공사](https://www.visitkorea.or.kr/) — 지역 여행·축제 안내"
+        )
+    with c3:
+        st.markdown(
+            """
+##### 시즌·에티켓
+- **겨울**: 난방·결빙·동파. **여름**: 벌레·더위·장마 텐트 관리.
+- **소음**: 심야 스피커·과한 음주는 민원이 됩니다. **조용한 시간**이 있으면 지키기.
+- **쓰레기**: **분리수거**·음식물 처리. 자연 보호 구역은 **취사 금지**인 경우가 많습니다.
+            """
+        )
+
+
+def _render_tab_car_wash() -> None:
+    st.header("🚿 세차·실내외 관리")
+    st.caption("셀프 세차장·가정에서의 기본 순서입니다. **코팅·폴리싱**은 제품 매뉴얼을 따르세요.")
+    w1, w2, w3 = st.tabs(["셀프 세차 순서", "실내·냄새", "코팅·왁스 감각"])
+    with w1:
+        st.markdown(
+            """
+##### 권장 순서(일반)
+1. **휠·타이어** 먼지 제거 → **프리워시**(큰 입자 흙 씻기)  
+2. **양동이 두 개**: 깨끗한 물 / 샴푸 물 — **같은 장갑으로 휠·차체 섞지 않기**  
+3. 위에서 아래로, **직선 스트로크**로 닦기(원을 그리면 스월 자국이 남기 쉬움)  
+4. **건조**: 극세사 건조 타월, **물기 마른 뒤** 이동하면 얼룩이 줄어듦  
+5. **엔진룸**은 물 세척 금지인 차종이 많습니다. 매뉴얼 확인.
+            """
+        )
+    with w2:
+        st.markdown(
+            """
+- **매트·시트**: 진공 + **브러시**, 음식 찌든 때는 전용 클리너.
+- **에어컨 냄새**: 필터·증발기 관리(정비용). **방향제만**으로 가리면 한계가 있습니다.
+- **트렁크**: 습기·액체 누수 확인.
+            """
+        )
+    with w3:
+        st.markdown(
+            """
+- **왁스**: 주기가 너무 짧으면 **잔여층**이 쌓일 수 있습니다. 제품별 권장 간격 확인.
+- **코팅제**: DIY는 **작은 면적부터** 시험, **직사광선·고온 차체**에 바르지 않기.
+- **고압수**: **가까이 대면** 도장 손상·고무 노화에 주의.
+            """
+        )
+
+
+def _render_tab_hobby_men40() -> None:
+    st.header("🧔 40대 남성에게 자주 꼽히는 취미(참고)")
+    st.caption(
+        "**개인차가 큽니다.** 국내 온·오프라인 커뮤니티에서 **빈도가 높게 언급되는 축**을 정리했습니다."
+    )
+    st.markdown(
+        """
+##### 운동·아웃도어
+- **등산·트레킹**: 주말 루틴으로 체력·멘탈 관리. **무릎·등산화·지팡이**부터 맞추면 장기적으로 유리합니다.
+- **자전거·그래블**: 유지비·보관이 자동차보다 단순한 편. **헬멧·야간 라이트** 필수.
+- **낚시**: 장비 단계를 나눠 **지역 규제·금어기** 확인.
+
+##### 감각·수집
+- **오디오**: 이어폰·스피커·LP 등 **듣는 환경**을 점진적으로 업그레이드. 청력 보호(볼륨·시간).
+- **위스키·커피**: 취향을 **기록**(메모)해 두면 다음 구매가 쉬워집니다. **과음·과카페인** 주의.
+- **사진**: 스마트폰만으로도 **구도·빛** 연습 가능. 무거운 렌즈는 **목·손목** 부담을 고려.
+
+##### 디지털·메이킹
+- **PC·기계 키보드·미니 PC**: 조립·튜닝은 **시간 대비 만족**이 큰 편. 전기·환기·먼지 관리.
+- **프라모델·건프라**: 집중 시간 확보(아이·반려와 **안전 거리**).
+
+##### 관계
+- **동호회·지역 모임**: 과음 문화가 있으면 **본인 룰**(물 마시기·택시비)을 미리 정해 두면 좋습니다.
+        """
+    )
+
+
+def _render_tab_figures() -> None:
+    st.header("🎨 피규어·프라모델·수집")
+    st.caption("**정품·예약·보관** 위주로 정리했습니다. 특정 작품·등급 논쟁은 커뮤니티 규칙을 따르세요.")
+    f1, f2, f3 = st.tabs(["입문·용어", "보관·전시", "구매·예약 문화"])
+    with f1:
+        st.markdown(
+            """
+- **스케일**: 1/7, 1/8 등 **키 높이** 감각이 다릅니다. 선반 깊이를 미리 재 보세요.
+- **재질**: PVC·ABS·레진 등 **온도·직사광선**에 민감한 재질이 있습니다.
+- **프라모델**: **니퍼·게이트 자국** 연습이 퀄리티를 좌우합니다.
+            """
+        )
+    with f2:
+        st.markdown(
+            """
+- **먼지**: 정전기 먼지 제거·**소프트 브러시**. 습식 청소는 **도장 손상** 위험.
+- **자외선**: 창가 전시는 **변색**이 빠를 수 있습니다. UV 차단 필름·박스 보관 고려.
+- **습기**: 해안·지하 공간은 **곰팡이**에 유의. 제습제·밀폐 케이스.
+            """
+        )
+    with f3:
+        st.markdown(
+            """
+- **예약·선주문**: 인기 작품은 **출시 전 결제**가 흔합니다. 취소·배송 정책을 읽기.
+- **중고**: **박스·부품 누락** 사진을 꼭 확인. 사기 피해는 **직거래·에스크로** 습관으로 줄이기.
+- **세금·관세**: 해외 직구는 **통관·부가세**가 붙을 수 있습니다.
+            """
+        )
 
 
 def _render_tab_agent() -> None:
@@ -3487,12 +4648,12 @@ def _render_tab_agent() -> None:
 
 
 def _render_tab_travel_mock() -> None:
-    """선택 국가별 여행 목업 — 날씨·시즌·축제·명소 TOP3 카드. 탭 상단에서 국가 선택."""
-    st.header("🗺️ 여행 스케치 (목업)")
-    st.caption("아래에서 **국가를 고르면** 해당 목업 카드가 바로 바뀝니다.")
+    """선택 국가별 여행 샘플 — 날씨·시즌·축제·명소 TOP3 카드. 탭 상단에서 국가 선택."""
+    st.header("🗺️ 여행 스케치")
+    st.caption("아래에서 **국가를 고르면** 해당 샘플 카드가 바로 바뀝니다.")
 
     st.warning(
-        "표시 정보는 **데모용 목업 데이터**입니다. 실제 여행·항공·비자·안전 정보는 "
+        "표시 정보는 **데모용 샘플 데이터**입니다. 실제 여행·항공·비자·안전 정보는 "
         "외교부 해외안전여행, 현지 관광청 등 **공식 채널**을 확인하세요."
     )
 
@@ -3506,7 +4667,7 @@ def _render_tab_travel_mock() -> None:
         "보고 싶은 나라",
         options=countries,
         key="travel_mock_country_name",
-        help="목업 데이터입니다. 실제 일정·비자·안전은 공식 안내를 확인하세요.",
+        help="샘플 데이터입니다. 실제 일정·비자·안전은 공식 안내를 확인하세요.",
     )
     country = str(st.session_state.travel_mock_country_name)
     row = TRAVEL_MOCK_BY_COUNTRY[country]
@@ -3896,18 +5057,21 @@ def _render_tab_apt_market() -> None:
 
     st.divider()
 
-    # ── API 키 입력 ───────────────────────────────────────────
-    with st.expander("🔑 국토교통부 API 연동 (data.go.kr 키 필요)", expanded=True):
-        st.markdown(
-            "[공공데이터포털](https://www.data.go.kr) → "
-            "`국토교통부_아파트매매 실거래 상세 자료` 검색 → 활용신청 → 인증키 발급"
+    api_key = (
+        (
+            os.environ.get("MOLIT_API_KEY")
+            or os.environ.get("DATA_GO_KR_SERVICE_KEY")
+            or os.environ.get("APT_SERVICE_KEY")
+            or ""
         )
-        api_key = st.text_input("API 인증키 (Encoding)", type="password",
-                                key="molit_api_key",
-                                placeholder="data.go.kr 발급 인증키")
-
+        .strip()
+    )
     if not api_key:
-        st.info("API 키를 입력하면 실거래 데이터를 직접 조회할 수 있습니다.")
+        st.info(
+            "국토부 실거래 **표/API 직접 조회**는 서버에 `MOLIT_API_KEY` 또는 "
+            "`DATA_GO_KR_SERVICE_KEY` 또는 `APT_SERVICE_KEY` 환경변수가 있을 때만 켜집니다. "
+            "위 링크·단지 검색은 키 없이 이용할 수 있습니다."
+        )
         return
 
     # ── 시도 → 시군구 → 동 3단계 지역 선택 ───────────────────
@@ -4244,10 +5408,29 @@ def _render_tab_real_estate_calc() -> None:
         st.caption(f"💡 순수익 기준 투자금 회수 예상 기간: **{payback:.1f}년**")
 
 
+def _breakeven_win_rate_pct(avg_win_pct: float, avg_loss_pct: float) -> float:
+    """평균 이익·평균 손실(절댓값 %) 가정 시 기댓값 0이 되는 승률(%). p = L/(W+L)."""
+    w, ell = float(avg_win_pct), float(avg_loss_pct)
+    if w <= 0 or ell <= 0:
+        return float("nan")
+    return 100.0 * ell / (w + ell)
+
+
+def _expected_return_per_trade_pct(
+    win_rate_pct: float, avg_win_pct: float, avg_loss_pct: float,
+    *, round_trip_cost_pct: float = 0.0,
+) -> float:
+    """회당 순이익 기대값(%). 왕복 비용은 이익에서 차감·손실에 가산(단순 모델)."""
+    p = max(0.0, min(1.0, float(win_rate_pct) / 100.0))
+    w = max(0.0, float(avg_win_pct) - float(round_trip_cost_pct))
+    ell = float(avg_loss_pct) + float(round_trip_cost_pct)
+    return p * w - (1.0 - p) * ell
+
+
 def _render_tab_stock_calc() -> None:
-    """📈 주식 계산기 — 수익률·복리·세금"""
+    """📈 주식 계산기 — 수익률·복리·세금·승률 참고"""
     st.header("📈 주식 계산기")
-    calc_tabs = st.tabs(["💹 수익률 계산", "📦 복리 계산", "🧾 세금 계산"])
+    calc_tabs = st.tabs(["💹 수익률 계산", "📦 복리 계산", "🧾 세금 계산", "🎯 승률·손익비 참고"])
 
     # ── ① 수익률 계산 ──────────────────────────────────────────
     with calc_tabs[0]:
@@ -4396,6 +5579,153 @@ def _render_tab_stock_calc() -> None:
         tc3.metric("납부 세액", f"{tax_due:,.0f} 만원", help="22% (지방소득세 포함)")
         st.caption("신고 기한: 매년 5월 / 손익통산 가능 (국가별 아님, 개인별 합산)")
 
+    # ── ④ 승률·손익비 참고 (단타·스윙·장기) ─────────────────────
+    with calc_tabs[3]:
+        st.subheader("승률이 어느 정도여야 하나요?")
+        st.caption(
+            "한 회 매매에서 **평균 이익·평균 손실(절댓값)**이 비슷하게 반복된다고 가정할 때의 **참고치**입니다. "
+            "실제로는 연속 손실·슬리피지·심리 때문에 더 높은 엣지가 필요합니다."
+        )
+
+        st.markdown("##### 프리셋 (탭 내 입력란에 반영)")
+        pc1, pc2, pc3 = st.columns(3)
+        with pc1:
+            if st.button("⚡ 단타형", key="preset_day", use_container_width=True):
+                st.session_state["wr_avg_win"] = 0.8
+                st.session_state["wr_avg_loss"] = 0.5
+                st.session_state["wr_cost"] = 0.08
+                st.session_state["wr_my_win"] = 55.0
+                st.session_state["wr_trades_y"] = 200
+                st.rerun()
+        with pc2:
+            if st.button("📈 스윙형", key="preset_swing", use_container_width=True):
+                st.session_state["wr_avg_win"] = 4.0
+                st.session_state["wr_avg_loss"] = 2.0
+                st.session_state["wr_cost"] = 0.04
+                st.session_state["wr_my_win"] = 45.0
+                st.session_state["wr_trades_y"] = 40
+                st.rerun()
+        with pc3:
+            if st.button("🌳 장기형", key="preset_lt", use_container_width=True):
+                st.session_state["wr_avg_win"] = 25.0
+                st.session_state["wr_avg_loss"] = 8.0
+                st.session_state["wr_cost"] = 0.02
+                st.session_state["wr_my_win"] = 55.0
+                st.session_state["wr_trades_y"] = 8
+                st.rerun()
+
+        st.markdown(
+            """
+| 스타일 | 가정 요지 | 프리셋 요지 |
+|:---:|:---|:---|
+| **단타** | 거래 많음·목표·스탑 촘촘 | 작은 % 이익/손실, 왕복 비용 비중 큼 → **승률 요구↑** |
+| **스윙** | 며칠~몇 주 보유 | 손익비·승률 중간, 비용은 상대적으로 작음 |
+| **장기** | 큰 추세·적은 거래 | 한 번의 손익 폭 큼, 이론상 손익분기 승률은 낮아질 수 있음 |
+"""
+        )
+
+        if "wr_avg_win" not in st.session_state:
+            st.session_state["wr_avg_win"] = 4.0
+            st.session_state["wr_avg_loss"] = 2.0
+            st.session_state["wr_cost"] = 0.04
+            st.session_state["wr_my_win"] = 45.0
+            st.session_state["wr_trades_y"] = 40
+
+        wn1, wn2, wn3 = st.columns(3)
+        with wn1:
+            avg_win = st.number_input(
+                "평균 이익 (%)", min_value=0.01, value=float(st.session_state["wr_avg_win"]),
+                step=0.1, format="%.2f", key="wr_avg_win",
+                help="수익본 거래들의 평균 수익률(대략)",
+            )
+        with wn2:
+            avg_loss = st.number_input(
+                "평균 손실 (%) 절댓값", min_value=0.01, value=float(st.session_state["wr_avg_loss"]),
+                step=0.1, format="%.2f", key="wr_avg_loss",
+                help="손절·손실 거래 평균 |절손실|%",
+            )
+        with wn3:
+            cost_rt = st.number_input(
+                "왕복 비용·슬리피지 (%)", min_value=0.0, value=float(st.session_state["wr_cost"]),
+                step=0.01, format="%.3f", key="wr_cost",
+                help="매수+매도 수수료·세금·체결 미끄럼을 한 번에 대략 잡은 값",
+            )
+
+        rr = avg_win / avg_loss if avg_loss > 0 else 0.0
+        be_raw = _breakeven_win_rate_pct(avg_win, avg_loss)
+        be_cost = _breakeven_win_rate_pct(
+            max(0.01, avg_win - cost_rt), avg_loss + cost_rt
+        )
+
+        wm1, wm2 = st.columns(2)
+        with wm1:
+            my_wr = st.slider(
+                "내가 가정하는 승률 (%)", 5.0, 95.0,
+                float(st.session_state["wr_my_win"]), step=0.5, key="wr_my_win",
+            )
+        with wm2:
+            n_trade_y = st.number_input(
+                "연간 거래 횟수(회)", min_value=1, value=int(st.session_state["wr_trades_y"]),
+                step=1, key="wr_trades_y",
+                help="단타는 크게, 장기는 작게",
+            )
+
+        ev = _expected_return_per_trade_pct(my_wr, avg_win, avg_loss, round_trip_cost_pct=cost_rt)
+        ev_simple = _expected_return_per_trade_pct(my_wr, avg_win, avg_loss, round_trip_cost_pct=0.0)
+
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric(
+            "손익분기 승률 (비용 전)",
+            f"{be_raw:.1f}%" if be_raw == be_raw else "—",
+            help="p = 평균손실 / (평균이익 + 평균손실)",
+        )
+        m2.metric(
+            "손익분기 승률 (비용 반영)",
+            f"{be_cost:.1f}%" if be_cost == be_cost else "—",
+            help="이익측에서 왕복비용 차감, 손실측에 가산한 단순 모델",
+        )
+        m3.metric(
+            "손익비 (평균이익/평균손실)", f"{rr:.2f}:1",
+        )
+        m4.metric(
+            "회당 기대수익 (%)", f"{ev:+.3f}%",
+            delta=f"비용 제외 시 {ev_simple:+.2f}%",
+            delta_color="normal" if ev >= 0 else "inverse",
+        )
+
+        if ev == ev:
+            st.caption(
+                f"연 **{n_trade_y}**회·단순 가정 시 연간 기대 누적(복리 없이): **{ev * n_trade_y:+.1f}%** "
+                f"(실제와 다를 수 있음)"
+            )
+
+        st.divider()
+        st.markdown("**체크** — 내 승률이 손익분기보다 얼마나 위인가")
+        if be_cost != be_cost:
+            pass
+        elif my_wr > be_cost + 0.05:
+            edge = my_wr - be_cost
+            st.success(f"가정상 손익분기(비용 반영) **{be_cost:.1f}%** 대비 승률 **+{edge:.1f}%p** 여유.")
+        elif my_wr < be_cost - 0.05:
+            st.warning(
+                f"가정상 손익분기(비용 반영) **{be_cost:.1f}%** — 지금 승률 **{my_wr:.1f}%**는 이론상 **엣지 부족**."
+            )
+        else:
+            st.info(
+                f"손익분기(비용 반영) **{be_cost:.1f}%**와 거의 같습니다. "
+                "분포·연속 손실·비용 변동만으로도 쉽게 마이너스로 갈 수 있습니다."
+            )
+
+        with st.expander("수식 요약", expanded=False):
+            st.markdown(
+                r"""
+- **손익분기 승률** \(p^\*\): \(p^* = \dfrac{L}{W+L}\)  ($W$=평균 이익%, $L$=평균 손실 절댓값%)
+- **손익비**: $R = W/L$ 이면 $p^* = \dfrac{1}{R+1}$
+- **회당 기대값**(비용 $c$): $p(W-c) - (1-p)(L+c)$
+- 단타는 $c$ 대비 $W,L$이 작아 **같은 전략이라도** $p^*$가 쉽게 올라갑니다.
+"""
+            )
+
 
 def _render_tab_apt_watchlist() -> None:
     """🏘 관심 단지 — 실거래 흐름 & 유용한 링크"""
@@ -4436,15 +5766,16 @@ def _render_tab_apt_watchlist() -> None:
     if st.session_state["apt_watchlist"]:
         st.divider()
         st.subheader("🔍 실거래 조회 바로가기")
+        from urllib.parse import quote  # noqa: PLC0415
         for apt in st.session_state["apt_watchlist"]:
-            q = apt.replace(" ", "+")
-            q_enc = apt.replace(" ", "%20")
+            # 호갱노노/아실/네이버/KB 모두 UTF-8 퍼센트 인코딩 쿼리를 사용하는 편이 안정적
+            q_enc = quote(apt.strip(), safe="")
             with _st_try_border_container():
                 st.markdown(f"#### 🏢 {apt}")
                 lc1, lc2, lc3, lc4 = st.columns(4)
                 lc1.markdown(
                     f"[![호갱노노](https://img.shields.io/badge/호갱노노-FF6B35?style=flat)]"
-                    f"(https://hogangnono.com/apt/search?q={q})")
+                    f"(https://hogangnono.com/apt/search?q={q_enc})")
                 lc2.markdown(
                     f"[![아실](https://img.shields.io/badge/아실-4CAF50?style=flat)]"
                     f"(https://asil.kr/asil/search.jsp?ename={q_enc})")
@@ -4454,24 +5785,6 @@ def _render_tab_apt_watchlist() -> None:
                 lc4.markdown(
                     f"[![KB부동산](https://img.shields.io/badge/KB부동산-FFB900?style=flat)]"
                     f"(https://kbland.kr/map?tab=1&searchKeyword={q_enc})")
-
-    # ── 국토교통부 API (선택) ──────────────────────────────────────
-    st.divider()
-    with st.expander("🔑 국토교통부 실거래가 API 연동 (선택 · API 키 필요)", expanded=False):
-        st.markdown("""
-**API 키 발급 방법**
-1. [공공데이터포털](https://www.data.go.kr) 접속 → 회원가입
-2. `국토교통부_아파트매매 실거래자료` 검색 → 활용신청
-3. 발급된 **일반 인증키(Encoding)** 를 아래에 입력
-
-발급 후 즉시 사용 가능 (당일 승인)
-""")
-        api_key = st.text_input("공공데이터포털 API 키", type="password",
-                                key="apt_api_key",
-                                placeholder="발급받은 인증키 붙여넣기")
-        if api_key:
-            st.success("API 키가 입력됐습니다. 현재 버전은 단지명 검색 연동 개발 예정입니다.")
-            st.caption("지역코드(법정동 코드) 기반 조회 → 추후 단지 필터 추가 예정")
 
     # ── 부동산 시장 주요 지표 ──────────────────────────────────────
     st.divider()
@@ -4487,159 +5800,2537 @@ def _render_tab_apt_watchlist() -> None:
         st.markdown(f"- [{name}]({url}) — {desc}")
 
 
+# ── 관심주식 사용자 인증 / 영구 저장 헬퍼 ─────────────────────────────
+import hashlib as _hashlib
+
+def _fmt_index_metric(v: Any) -> str:
+    """지수 카드용 — NaN/None 은 '-' 로 (Streamlit metric에 'nan' 문자 노출 방지)."""
+    if v is None:
+        return "-"
+    try:
+        x = float(v)
+        if not math.isfinite(x):
+            return "-"
+        return f"{x:,.2f}"
+    except (TypeError, ValueError):
+        return "-"
+
+
+# 빠른 로그인 슬롯 (아이디 user_a/user_d/user_e/user_f · 공통 기본 비밀번호)
+_WL_PRESET_SLOT_PW = "wl2026"
+_WL_PRESET_USERS: tuple[tuple[str, str], ...] = (
+    ("user_a", "A · 준(본인)"),
+    ("user_d", "D · 공용"),
+    ("user_e", "E · 공용"),
+    ("user_f", "F · 공용"),
+)
+
+
+def _wl_ensure_preset_users(here: Path) -> None:
+    """user_a~f 가 없으면 기본 비밀번호로 생성(기존 aaa 등은 유지)."""
+    data = _wl_load(here)
+    users = data.setdefault("users", {})
+    hpw = _wl_hash(_WL_PRESET_SLOT_PW)
+    changed = False
+    for uid, _lbl in _WL_PRESET_USERS:
+        if uid not in users:
+            users[uid] = {"pw": hpw, "tickers": []}
+            changed = True
+    if changed:
+        _wl_save(here, data)
+
+
+def _wl_users_path(here: Path) -> Path:
+    d = here / "watchlist_data"
+    d.mkdir(parents=True, exist_ok=True)
+    return d / "users.json"
+
+def _wl_hash(pw: str) -> str:
+    return _hashlib.sha256(pw.encode("utf-8")).hexdigest()
+
+def _wl_load(here: Path) -> dict:
+    p = _wl_users_path(here)
+    if not p.exists():
+        # 기본 계정(aaa/bbb) 포함해 초기화
+        data = {"users": {"aaa": {"pw": _wl_hash("bbb"), "tickers": ["005930.KS", "AAPL", "TSLA"]}}}
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        return data
+    try:
+        with open(p, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {"users": {}}
+
+def _wl_save(here: Path, data: dict) -> None:
+    p = _wl_users_path(here)
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+def _wl_login(here: Path, uid: str, pw: str) -> bool:
+    data = _wl_load(here)
+    user = data["users"].get(uid)
+    return user is not None and user.get("pw") == _wl_hash(pw)
+
+def _wl_register(here: Path, uid: str, pw: str) -> tuple[bool, str]:
+    if not uid.strip():
+        return False, "아이디를 입력하세요."
+    if not pw.strip():
+        return False, "비밀번호를 입력하세요."
+    if len(uid) < 2:
+        return False, "아이디는 2자 이상이어야 합니다."
+    data = _wl_load(here)
+    if uid in data["users"]:
+        return False, "이미 존재하는 아이디입니다."
+    data["users"][uid] = {"pw": _wl_hash(pw), "tickers": []}
+    _wl_save(here, data)
+    return True, "가입 완료!"
+
+
+def _wl_upsert_quick_label(here: Path, uid: str, quick_label: str) -> None:
+    data = _wl_load(here)
+    users = data.setdefault("users", {})
+    if uid in users:
+        users[uid]["quick_label"] = quick_label
+        _wl_save(here, data)
+
+
+def _wl_collect_quick_accounts(here: Path) -> list[tuple[str, str]]:
+    """빠른 로그인 버튼 목록(프리셋 + 사용자 추가 슬롯)."""
+    quick: list[tuple[str, str]] = list(_WL_PRESET_USERS)
+    data = _wl_load(here)
+    users = data.get("users", {})
+    for uid, info in users.items():
+        if uid in {x[0] for x in _WL_PRESET_USERS}:
+            continue
+        ql = str((info or {}).get("quick_label") or "").strip()
+        if ql:
+            quick.append((uid, ql))
+    return quick
+
+
+def _wl_next_quick_prefix(here: Path) -> str:
+    used: set[str] = set()
+    for _uid, label in _wl_collect_quick_accounts(here):
+        first = label.strip()[:1].upper()
+        if first and "A" <= first <= "Z":
+            used.add(first)
+    for code in range(ord("A"), ord("Z") + 1):
+        c = chr(code)
+        if c not in used:
+            return c
+    return "N"
+
+def _wl_get_tickers(here: Path, uid: str) -> list[str]:
+    data = _wl_load(here)
+    return list(data["users"].get(uid, {}).get("tickers", []))
+
+def _wl_set_tickers(here: Path, uid: str, tickers: list[str]) -> None:
+    data = _wl_load(here)
+    if uid in data["users"]:
+        data["users"][uid]["tickers"] = tickers
+        _wl_save(here, data)
+
+
+def _wl_ensure_watchlist_session(here: Path, uid: str) -> None:
+    if "stk_watchlist" not in st.session_state:
+        st.session_state["stk_watchlist"] = _wl_get_tickers(here, uid)
+
+
+def _wl_add_ticker(here: Path, uid: str, raw_ticker: str) -> tuple[bool, str]:
+    t = (raw_ticker or "").strip().upper()
+    if not t:
+        return False, "티커가 비어 있습니다."
+    data = _wl_load(here)
+    if uid not in data.get("users", {}):
+        return False, "로그인 정보를 다시 확인하세요."
+    cur = list(data["users"][uid].get("tickers", []))
+    cur_u = [str(x).strip().upper() for x in cur]
+    if t in cur_u:
+        return False, "이미 관심 목록에 있습니다."
+    cur.append(t)
+    data["users"][uid]["tickers"] = cur
+    _wl_save(here, data)
+    if st.session_state.get("wl_user") == uid:
+        st.session_state["stk_watchlist"] = cur
+    return True, f"{t} 관심에 추가했습니다."
+
+
+def _wl_remove_ticker(here: Path, uid: str, raw_ticker: str) -> tuple[bool, str]:
+    t = (raw_ticker or "").strip().upper()
+    if not t:
+        return False, "티커가 비어 있습니다."
+    data = _wl_load(here)
+    if uid not in data.get("users", {}):
+        return False, "로그인 정보를 다시 확인하세요."
+    cur = list(data["users"][uid].get("tickers", []))
+    cur_u = [str(x).strip().upper() for x in cur]
+    if t not in cur_u:
+        return False, "관심 목록에 없습니다."
+    new_cur = [x for x in cur if str(x).strip().upper() != t]
+    data["users"][uid]["tickers"] = new_cur
+    _wl_save(here, data)
+    if st.session_state.get("wl_user") == uid:
+        st.session_state["stk_watchlist"] = new_cur
+    return True, f"{t} 관심에서 제거했습니다."
+
+
+def _wl_remove_at(here: Path, uid: str, index: int) -> None:
+    cur = list(_wl_get_tickers(here, uid))
+    if 0 <= index < len(cur):
+        cur.pop(index)
+        data = _wl_load(here)
+        if uid in data.get("users", {}):
+            data["users"][uid]["tickers"] = cur
+            _wl_save(here, data)
+        st.session_state["stk_watchlist"] = cur
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _wl_yf_series_3mo(ticker: str) -> dict[str, Any]:
+    """3개월 일봉 기준 이름·종가·누적수익률 시리즈."""
+    empty: dict[str, Any] = {
+        "ok": False, "name": "", "dates": [], "closes": [], "norm_pct": [],
+        "last": None, "prev_close": None, "d1_pct": None, "period_pct": None,
+    }
+    if yf is None:
+        return empty
+    try:
+        hist = yf.download(
+            ticker, period="3mo", interval="1d", progress=False, auto_adjust=True,
+        )
+        if hist is None or hist.empty:
+            return empty
+        c = hist["Close"]
+        if hasattr(c, "squeeze"):
+            c = c.squeeze()
+        closes = [float(x) for x in c.tolist()]
+        dates = [str(d)[:10] for d in c.index.tolist()]
+        tk = yf.Ticker(ticker)
+        info = tk.fast_info
+        name = ""
+        try:
+            inf = tk.info or {}
+            name = str(inf.get("shortName") or inf.get("longName") or "").strip()
+        except Exception:
+            name = ""
+        if not name:
+            name = ticker
+        last = float(closes[-1]) if closes else None
+        prev = getattr(info, "previous_close", None)
+        if prev is None and len(closes) >= 2:
+            prev = float(closes[-2])
+        period_pct = None
+        if closes and closes[0]:
+            period_pct = (closes[-1] / closes[0] - 1.0) * 100.0
+        d1_pct = None
+        if last is not None and prev:
+            try:
+                d1_pct = (last / float(prev) - 1.0) * 100.0
+            except (TypeError, ValueError, ZeroDivisionError):
+                d1_pct = None
+        norm_pct: list[float] = []
+        if closes and closes[0]:
+            first = closes[0]
+            norm_pct = [(cl / first - 1.0) * 100.0 for cl in closes]
+        return {
+            "ok": True,
+            "name": name,
+            "dates": dates,
+            "closes": closes,
+            "norm_pct": norm_pct,
+            "last": last,
+            "prev_close": float(prev) if prev is not None else None,
+            "d1_pct": d1_pct,
+            "period_pct": period_pct,
+        }
+    except Exception:
+        return empty
+
+
+def _wl_render_watch_star_grid(
+    here: Path,
+    uid: str,
+    rows: list[dict],
+    *,
+    cols_step: int = 3,
+    key_fn: Any,
+    show_intro: bool = True,
+) -> None:
+    """코스피·코스닥 순위 / 오늘의 픽 공통: 접는 ⭐ 관심 칩 그리드(3열, 모바일 친화)."""
+    if not rows:
+        return
+    wl_set = {str(x).strip().upper() for x in _wl_get_tickers(here, uid)}
+    step = max(3, min(int(cols_step), 6))
+
+    def _render_rows() -> None:
+        if show_intro:
+            st.caption("⭐ 추가 · ★ 담김(한 번 더 누르면 제거)")
+        for row_start in range(0, len(rows), step):
+            chunk = rows[row_start : row_start + step]
+            try:
+                gcols = st.columns(step, gap="small")
+            except TypeError:
+                gcols = st.columns(step)
+            for j in range(step):
+                with gcols[j]:
+                    if j >= len(chunk):
+                        continue
+                    m = chunk[j]
+                    i = row_start + j
+                    t_raw = str(m.get("ticker") or "").strip()
+                    if not t_raw:
+                        st.caption("—")
+                        continue
+                    t_key = t_raw.upper()
+                    nm = str(m.get("name") or "").strip()
+                    sym = t_raw.split(".")[0] if "." in t_raw else t_raw
+                    # 칩용 짧은 라벨 (한 줄·좁은 열)
+                    nm_chip = ((nm[:4] if nm else sym) or sym)[:5]
+                    in_wl = t_key in wl_set
+                    btn_lbl = f"★ {nm_chip}" if in_wl else f"⭐ {nm_chip}"
+                    h = (
+                        f"{nm} · {t_raw} — 클릭 시 관심에서 제거"
+                        if in_wl
+                        else f"{nm} · {t_raw} — 클릭 시 관심에 추가"
+                    )
+                    if st.button(
+                        btn_lbl,
+                        key=key_fn(i, m),
+                        help=h,
+                        type="primary" if in_wl else "secondary",
+                        use_container_width=True,
+                    ):
+                        if in_wl:
+                            ok, msg = _wl_remove_ticker(here, uid, t_raw)
+                        else:
+                            ok, msg = _wl_add_ticker(here, uid, t_raw)
+                        if ok:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.warning(msg)
+
+    if show_intro:
+        with st.expander("⭐ 관심에 담기", expanded=False):
+            _render_rows()
+    else:
+        _render_rows()
+
+
+def _wl_render_pick_quick_add(here: Path, matches: list[dict], bucket_key: str) -> None:
+    """오늘의 픽 각 버킷 하단 — 원클릭 관심."""
+    uid = st.session_state.get("wl_user")
+    if not matches:
+        return
+    if not uid:
+        st.caption("**관심주식**에서 로그인하면 여기서도 바로 담을 수 있습니다.")
+        return
+    _wl_ensure_watchlist_session(here, uid)
+    st.caption("아래는 위 표와 **위에서부터 같은 순서**입니다.")
+    _wl_render_watch_star_grid(
+        here,
+        uid,
+        matches,
+        key_fn=lambda i, m, bk=bucket_key: f"wlpk_{bk}_{i}_{str(m.get('ticker') or '').strip()}",
+    )
+
+
 def _render_tab_stock_watchlist() -> None:
-    """⭐ 관심 주식 — yfinance 실시간 워치리스트"""
-    st.header("⭐ 관심 주식")
-    st.caption("티커 심볼을 등록하면 실시간 시세와 차트를 확인할 수 있습니다.")
+    """관심 주식 — 사용자별 영구 저장 워치리스트"""
+    st.header("관심 주식")
+
+    here = Path(__file__).resolve().parent
+
+    # ── 로그인 상태 확인 ────────────────────────────────────────
+    logged_in_user: str | None = st.session_state.get("wl_user")
+
+    if not logged_in_user:
+        st.caption("관심 종목은 로그인 후 저장됩니다.")
+
+        with _st_try_border_container():
+            st.markdown(f"""
+> **안내**  
+> 테스트 계정: 아이디 `aaa` / 비밀번호 `bbb`  
+> 상단 **{_WL_NAV_LOGIN}** / **{_WL_NAV_REGISTER}** 에서도 동일 화면을 쓸 수 있습니다.  
+> 아래 탭에서도 입력할 수 있습니다.
+""")
+
+        tab_login, tab_reg = st.tabs([_WL_NAV_LOGIN, _WL_NAV_REGISTER])
+
+        with tab_login:
+            _wl_render_login_form(here)
+
+        with tab_reg:
+            _wl_render_register_form(here)
+        return  # 로그인 전이면 여기서 종료
 
     if yf is None:
         st.warning("yfinance 라이브러리가 없어 시세를 불러올 수 없습니다.")
         return
 
-    # ── 워치리스트 관리 ──────────────────────────────────────────
+    # ── 로그인 완료: 워치리스트 화면 ─────────────────────────────
+    col_title, col_logout = st.columns([4, 1])
+    with col_title:
+        st.caption(f"**{logged_in_user}** 님의 관심 종목 · 새로고침해도 저장됩니다.")
+    with col_logout:
+        if st.button("로그아웃", key="wl_logout"):
+            del st.session_state["wl_user"]
+            st.session_state.pop("stk_watchlist", None)
+            st.rerun()
+
+    # session_state 초기화 (최초 로그인 후)
     if "stk_watchlist" not in st.session_state:
-        st.session_state["stk_watchlist"] = ["005930.KS", "AAPL", "TSLA"]  # 기본값
+        st.session_state["stk_watchlist"] = _wl_get_tickers(here, logged_in_user)
+
+    _wl_ensure_watchlist_session(here, logged_in_user)
+
+    st.markdown(
+        "**오늘의 픽** · **코스피/코스닥 스캐너** 표 아래 **⭐** 로 추가, **★** 를 다시 누르면 제거됩니다. "
+        "또는 아래에서 티커를 직접 넣을 수 있습니다."
+    )
+    _weinstein_tip_caption(salt="watchlist_logged_in")
 
     with _st_try_border_container():
-        st.subheader("📌 종목 등록")
-        st.caption("한국 주식: 종목코드.KS (예: 005930.KS) / 미국 주식: 티커 (예: AAPL)")
-        wc1, wc2 = st.columns([5, 1])
-        with wc1:
-            new_ticker = st.text_input("티커 입력", key="stk_ticker_input",
-                                       placeholder="005930.KS  또는  AAPL")
-        with wc2:
+        st.subheader("티커 직접 추가")
+        st.caption("Yahoo Finance 형식 예: `005930.KS`, `247540.KQ`, `AAPL`")
+        row_a, row_b = st.columns([5, 1])
+        with row_a:
+            st.text_input(
+                "티커",
+                key="wl_manual_ticker",
+                placeholder="005930.KS",
+                label_visibility="collapsed",
+            )
+        with row_b:
             st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("➕ 추가", key="stk_add"):
-                t = new_ticker.strip().upper()
-                if t and t not in st.session_state["stk_watchlist"]:
-                    st.session_state["stk_watchlist"].append(t)
-
-        # 현재 목록
-        tickers = st.session_state["stk_watchlist"]
-        if tickers:
-            rem_cols = st.columns(min(len(tickers), 6))
-            for i, t in enumerate(tickers):
-                col = rem_cols[i % len(rem_cols)]
-                if col.button(f"❌ {t}", key=f"stk_rem_{i}"):
-                    st.session_state["stk_watchlist"].pop(i)
+            if st.button("추가", key="wl_manual_add", type="primary", use_container_width=True):
+                mv = str(st.session_state.get("wl_manual_ticker", "")).strip()
+                ok, msg = _wl_add_ticker(here, logged_in_user, mv)
+                if ok:
+                    st.session_state["wl_manual_ticker"] = ""
+                    st.success(msg)
                     st.rerun()
+                else:
+                    st.warning(msg)
 
-    if not st.session_state["stk_watchlist"]:
-        st.info("관심 종목을 추가해 주세요.")
-        return
+    tickers = list(st.session_state["stk_watchlist"])
+    if not tickers:
+        st.info(
+            "아직 관심 종목이 없습니다.\n\n"
+            "· **오늘의 픽** 또는 **코스피 스캐너** / **코스닥 스캐너** 로 이동한 뒤, "
+            "표 아래 **⭐ 관심에 담기** 버튼을 눌러 보세요.\n\n"
+            "아래에는 **비교용**으로 코스피·코스닥 지수 수익률을 기본 표시합니다."
+        )
 
     st.divider()
+    st.subheader("3개월 누적 수익률 (각 종목·지수 첫 거래일 종가 = 0%)")
+    st.caption(
+        "회색 점선·점점선은 **코스피(^KS11)**·**코스닥(^KQ11)** 벤치입니다. "
+        "같은 기간·같은 Y축으로 비교합니다. 출처: yfinance 일봉(자동 조정 종가)."
+    )
 
-    @st.cache_data(ttl=300, show_spinner=False)
-    def _fetch_quote(ticker: str) -> dict:
+    panels: list[tuple[str, dict[str, Any]]] = []
+    with st.spinner("시세·차트 데이터 불러오는 중…"):
+        bench_ks = _wl_yf_series_3mo("^KS11")
+        bench_kq = _wl_yf_series_3mo("^KQ11")
+        for t in tickers:
+            panels.append((t, _wl_yf_series_3mo(t)))
+
+    if go is not None:
+        fig_cmp = go.Figure()
+        for label, bench, color, dash in (
+            ("코스피 ^KS11", bench_ks, "#64748b", "dash"),
+            ("코스닥 ^KQ11", bench_kq, "#94a3b8", "dot"),
+        ):
+            if bench.get("ok") and bench.get("dates"):
+                fig_cmp.add_trace(
+                    go.Scatter(
+                        x=bench["dates"],
+                        y=bench["norm_pct"],
+                        name=label,
+                        mode="lines",
+                        line=dict(color=color, width=2, dash=dash),
+                        hovertemplate=f"{label}<br>%{{x}}<br>%{{y:.2f}}%<extra></extra>",
+                    )
+                )
+        palette = [
+            "#60a5fa", "#34d399", "#fbbf24", "#f472b6", "#a78bfa",
+            "#fb923c", "#38bdf8", "#4ade80", "#facc15", "#fda4af",
+            "#c084fc", "#22d3ee",
+        ]
+        n_bench = len(fig_cmp.data)
+        for i, (t, p) in enumerate(panels):
+            if not p.get("ok") or not p.get("dates"):
+                continue
+            nm = str(p.get("name") or t)[:18]
+            fig_cmp.add_trace(
+                go.Scatter(
+                    x=p["dates"],
+                    y=p["norm_pct"],
+                    name=nm,
+                    mode="lines",
+                    line=dict(color=palette[(n_bench + i) % len(palette)], width=2),
+                    hovertemplate=f"{nm}<br>%{{x}}<br>%{{y:.2f}}%<extra></extra>",
+                )
+            )
+        if fig_cmp.data:
+            fig_cmp.update_layout(
+                xaxis_title="일자",
+                yaxis_title="누적 수익률 (%)",
+                height=460,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+                margin=dict(t=24, b=48),
+                hovermode="x unified",
+            )
+            st.plotly_chart(fig_cmp, use_container_width=True)
+        else:
+            st.warning("차트용 데이터를 가져오지 못했습니다. 네트워크·티커를 확인하세요.")
+    else:
+        st.warning("plotly 가 없어 통합 차트를 생략합니다.")
+
+    st.subheader("요약 표")
+    table_rows: list[dict[str, Any]] = []
+
+    def _wl_summary_row(label: str, sym: str, p: dict[str, Any]) -> dict[str, Any]:
+        d1 = p.get("d1_pct")
+        p3 = p.get("period_pct")
+        last_v = p.get("last")
+        return {
+            "종목": label,
+            "티커": sym,
+            "현재가": f"{float(last_v):,.2f}" if last_v is not None else "—",
+            "전일대비": f"{float(d1):+.2f}%" if d1 is not None else "—",
+            "3M 누적": f"{float(p3):+.2f}%" if p3 is not None else "—",
+        }
+
+    if bench_ks.get("ok"):
+        table_rows.append(_wl_summary_row("코스피 지수", "^KS11", bench_ks))
+    if bench_kq.get("ok"):
+        table_rows.append(_wl_summary_row("코스닥 지수", "^KQ11", bench_kq))
+    for t, p in panels:
+        table_rows.append(_wl_summary_row(str(p.get("name") or t), t, p))
+    if pd is not None:
+        _st_dataframe_all_rows(pd.DataFrame(table_rows))
+    else:
+        st.table(table_rows)
+
+    if tickers:
+        st.subheader("목록에서 제거")
+        del_cols = st.columns(min(len(tickers), 6))
+        for i, t in enumerate(tickers):
+            p = panels[i][1]
+            nm = str(p.get("name") or t)[:10]
+            with del_cols[i % len(del_cols)]:
+                if st.button(f"삭제 · {nm}", key=f"wl_del_{i}", use_container_width=True):
+                    _wl_remove_at(here, logged_in_user, i)
+                    st.rerun()
+
+
+def _scanner_payload_matches(payload: dict | None) -> list[dict[str, Any]]:
+    if not payload:
+        return []
+    return list(payload.get("top_table") or payload.get("matches") or [])
+
+
+def _load_scanner_results(path: Path) -> dict[str, Any] | None:
+    if not path.is_file():
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _universe_meta_cache_updated_at(app_root: Path | None) -> str:
+    """`collector_hourly`가 쓰는 공용 일봉 캐시 메타 시각 (tema_cache_data/cache/universe_meta.json)."""
+    if app_root is None:
+        return ""
+    p = app_root / "tema_cache_data" / "cache" / "universe_meta.json"
+    try:
+        if not p.is_file():
+            return ""
+        with open(p, encoding="utf-8") as f:
+            d = json.load(f)
+        if not isinstance(d, dict):
+            return ""
+        v = d.get("updated_at")
+        s = str(v).strip() if v is not None else ""
+        if s and s not in ("—", "-", "None", "null"):
+            return s
+    except Exception:
+        pass
+    return ""
+
+
+def _scanner_freshest_display_time(payload: dict | None, *, app_root: Path | None = None) -> str:
+    """Stage2 전체 스캔 시각, results_web의 캐시필드, 공용 universe_meta 중 가장 늦은 KST 문자열."""
+    raw: list[str] = []
+    if isinstance(payload, dict):
+        for k in ("last_analysis_time", "universe_cache_updated_at"):
+            v = payload.get(k)
+            if v is None:
+                continue
+            s = str(v).strip()
+            if s and s not in ("—", "-", "None", "null"):
+                raw.append(s)
+    um = _universe_meta_cache_updated_at(app_root)
+    if um:
+        raw.append(um)
+    if not raw:
+        return "—"
+    best_s: str | None = None
+    best_dt: datetime | None = None
+    for s in raw:
         try:
-            tk = yf.Ticker(ticker)
-            info = tk.fast_info
-            hist = yf.download(ticker, period="1mo", interval="1d",
-                               progress=False, auto_adjust=True)
-            closes: list[float] = []
-            dates:  list[str]   = []
-            if hist is not None and not hist.empty:
-                c = hist["Close"]
-                if hasattr(c, "squeeze"):
-                    c = c.squeeze()
-                closes = [float(v) for v in c.tolist()]
-                dates  = [str(d)[:10] for d in c.index.tolist()]
-            return {
-                "price":       getattr(info, "last_price",      None),
-                "prev_close":  getattr(info, "previous_close",  None),
-                "high_52w":    getattr(info, "year_high",       None),
-                "low_52w":     getattr(info, "year_low",        None),
-                "currency":    getattr(info, "currency",        ""),
-                "closes":      closes,
-                "dates":       dates,
-            }
-        except Exception:
-            return {}
+            dt = datetime.strptime(s, "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST)
+        except ValueError:
+            continue
+        if best_dt is None or dt > best_dt:
+            best_dt = dt
+            best_s = s
+    return best_s or raw[0]
 
-    # ── 종목 카드 ──────────────────────────────────────────────
-    for ticker in st.session_state["stk_watchlist"]:
-        with st.spinner(f"{ticker} 시세 로딩…"):
-            q = _fetch_quote(ticker)
 
-        with _st_try_border_container():
-            h1, h2 = st.columns([3, 2])
-            with h1:
-                st.markdown(f"#### {ticker}")
-                if q.get("price") and q.get("prev_close"):
-                    price    = q["price"]
-                    prev     = q["prev_close"]
-                    chg      = price - prev
-                    chg_pct  = chg / prev * 100 if prev else 0.0
-                    currency = q.get("currency", "")
-                    color    = "#34d399" if chg >= 0 else "#f87171"
-                    sign     = "+" if chg >= 0 else ""
-                    st.markdown(
-                        f"<span style='font-size:1.5rem;font-weight:700;'>"
-                        f"{price:,.2f} <span style='font-size:1rem;color:#94a3b8;'>{currency}</span>"
-                        f"</span>&nbsp;&nbsp;"
-                        f"<span style='color:{color};font-size:1.1rem;'>"
-                        f"{sign}{chg:,.2f} ({sign}{chg_pct:.2f}%)</span>",
-                        unsafe_allow_html=True,
-                    )
-                    if q.get("high_52w") and q.get("low_52w"):
-                        h52, l52 = q["high_52w"], q["low_52w"]
-                        pos = (price - l52) / (h52 - l52) * 100 if h52 != l52 else 50
-                        st.caption(
-                            f"52주 고: {h52:,.2f}  /  저: {l52:,.2f}  "
-                            f"(현재 위치 {pos:.0f}%)"
+def _merge_kospi_kosdaq_matches(
+    here: Path,
+) -> tuple[list[dict[str, Any]], str, str, dict[str, Any] | None, dict[str, Any] | None]:
+    pk = _load_scanner_results(here / "kospi_data" / "results_web.json")
+    qk = _load_scanner_results(here / "kosdaq_data" / "results_web.json")
+    out: list[dict[str, Any]] = []
+    for m in _scanner_payload_matches(pk):
+        mm = dict(m)
+        mm["market"] = "코스피"
+        out.append(mm)
+    for m in _scanner_payload_matches(qk):
+        mm = dict(m)
+        mm["market"] = "코스닥"
+        out.append(mm)
+    kt = _scanner_freshest_display_time(pk, app_root=here)
+    qt = _scanner_freshest_display_time(qk, app_root=here)
+    return out, str(kt), str(qt), pk, qk
+
+
+def _bars_since_stage2(m: dict[str, Any]) -> int:
+    v = m.get("bars_since_stage2_entry")
+    try:
+        return int(v) if v is not None else 10_000
+    except (TypeError, ValueError):
+        return 10_000
+
+
+def _score_match(m: dict[str, Any]) -> float:
+    try:
+        return float(m.get("score") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _daily_pick_rank_delta_1d_int(m: dict[str, Any]) -> int:
+    """Δ1d를 대략 정수로(순위 개선=양수). 수급·관심 프록시로 장투 탭 정렬에 사용."""
+    s = str(m.get("rank_delta_1d", "") or "").strip()
+    if not s or s in ("—", "-", "None", "null"):
+        return 0
+    try:
+        return int(float(s))
+    except (TypeError, ValueError):
+        pass
+    if s.startswith("+"):
+        try:
+            return int(float(s[1:]))
+        except (TypeError, ValueError):
+            return 0
+    if s.startswith("-"):
+        try:
+            return -int(float(s[1:]))
+        except (TypeError, ValueError):
+            return 0
+    return 0
+
+
+def _ret_since_stage2_pct(m: dict[str, Any]) -> float:
+    v = m.get("ret_since_entry_pct")
+    if v is not None:
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            pass
+    try:
+        return float(m.get("ret_3m_pct") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _daily_pick_disparity_pct(m: dict[str, Any], days: int) -> float | None:
+    """
+    20/50일 이격도(%): (현재가 / MA - 1) * 100
+    - 결과 JSON 키가 있으면 우선 사용
+    - 없으면 close/ma 값으로 계산 시도
+    """
+    key_map = {
+        20: ("dist_ma20_pct", "disparity_20_pct", "close_vs_ma20_pct", "price_to_ma20_pct", "pct_from_ma20"),
+        50: ("dist_ma50_pct", "disparity_50_pct", "close_vs_ma50_pct", "price_to_ma50_pct", "pct_from_ma50"),
+    }
+    ma_key_map = {
+        20: ("ma20", "MA20", "sma20"),
+        50: ("ma50", "MA50", "sma50"),
+    }
+    for k in key_map.get(days, ()):
+        v = m.get(k)
+        if v is None:
+            continue
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            pass
+    close_v = None
+    for ck in ("close", "last_close", "close_price"):
+        cv = m.get(ck)
+        if cv is None:
+            continue
+        try:
+            close_v = float(cv)
+            break
+        except (TypeError, ValueError):
+            continue
+    ma_v = None
+    for mk in ma_key_map.get(days, ()):
+        mv = m.get(mk)
+        if mv is None:
+            continue
+        try:
+            ma_v = float(mv)
+            break
+        except (TypeError, ValueError):
+            continue
+    if close_v is None or ma_v is None or ma_v == 0:
+        return None
+    return (close_v / ma_v - 1.0) * 100.0
+
+
+def _daily_pick_overbought_ok(m: dict[str, Any]) -> bool | None:
+    """
+    점수가 높은 종목(>=85) 중 과열(20/50 이격도) 여부 체크.
+    - 기준: d20 <= +8%, d50 <= +15%
+    - 이격도 데이터가 없으면 None
+    """
+    if _score_match(m) < 85:
+        return None
+    d20 = _daily_pick_disparity_pct(m, 20)
+    d50 = _daily_pick_disparity_pct(m, 50)
+    if d20 is None and d50 is None:
+        return None
+    ok20 = True if d20 is None else (d20 <= 8.0)
+    ok50 = True if d50 is None else (d50 <= 15.0)
+    return bool(ok20 and ok50)
+
+
+def _daily_pick_stage2_status(m: dict[str, Any]) -> str:
+    """
+    초기2단계(비과열) 상태 라벨:
+    - 초기: bars_since_stage2_entry <= 20
+    - 과열: 20일이격 >= +20% 또는 50일이격 >= +30%
+    """
+    b = _bars_since_stage2(m)
+    d20 = _daily_pick_disparity_pct(m, 20)
+    d50 = _daily_pick_disparity_pct(m, 50)
+    is_initial = b <= 20
+    is_overheated = bool(
+        (d20 is not None and d20 >= 20.0) or
+        (d50 is not None and d50 >= 30.0)
+    )
+    if is_initial and is_overheated:
+        return "초기·과열"
+    if is_initial and not is_overheated:
+        return "초기·비과열"
+    if (d20 is not None) or (d50 is not None):
+        return "일반"
+    return "—"
+
+
+def _classify_daily_pick_buckets(matches: list[dict[str, Any]], *, n: int = 12) -> dict[str, list[dict[str, Any]]]:
+    """
+    단타·스윙·장투 — 사용자 매매 스타일(짧게 2~3일 / 추세 전체 / 수개월+눌림)에 맞춘 휴리스틱.
+
+    - **버킷 사이**: 동일 티커가 **여러 탭에 동시에** 올 수 있음(의도적 중복·시나리오 분할용).
+    - **버킷 안**: 티커 중복 없이 최대 ``n``개.
+
+    일봉 스캔만 있으므로 「2~3일」은 **진입 후 거래일 수(bars)** 로 근사합니다.
+    """
+    pool = sorted(matches, key=_score_match, reverse=True)
+
+    def br(m: dict[str, Any]) -> int:
+        return _bars_since_stage2(m)
+
+    def _ob_bonus(m: dict[str, Any]) -> int:
+        """고점수 + 비과열(20/50 이격도)면 가점."""
+        return 1 if _daily_pick_overbought_ok(m) is True else 0
+
+    def _parse_delta(m: dict[str, Any], key: str) -> int:
+        """rank_delta 문자열을 정수로 파싱. 순위 상승=양수, 하락=음수, 없음=0."""
+        s = str(m.get(key, "") or "").strip()
+        if not s or s in ("—", "-", "None", "null"):
+            return 0
+        try:
+            return int(float(s))
+        except (TypeError, ValueError):
+            return 0
+
+    def _swing_sort_key(m: dict[str, Any]) -> float:
+        """점수 + Δ가점(1일*0.5 + 3일*0.3 + 6일*0.2). 순위가 올라올수록 높아짐."""
+        d1 = _parse_delta(m, "rank_delta_1d")
+        d3 = _parse_delta(m, "rank_delta_3d")
+        d6 = _parse_delta(m, "rank_delta_6d")
+        delta_bonus = d1 * 0.5 + d3 * 0.3 + d6 * 0.2
+        return _score_match(m) + delta_bonus
+
+    def _uniq_best(pred: Any, *, sort_key: Any, reverse: bool = True) -> list[dict[str, Any]]:
+        cand = [m for m in pool if pred(m)]
+        cand.sort(key=sort_key, reverse=reverse)
+        seen: set[str] = set()
+        out: list[dict[str, Any]] = []
+        for m in cand:
+            t = str(m.get("ticker") or "").strip()
+            if not t or t in seen:
+                continue
+            seen.add(t)
+            out.append(m)
+            if len(out) >= n:
+                break
+        return out
+
+    # 단타: 2~3일~수일 보유 — Stage2 **초입** + 짧은 구간 + (겹침) 고점수 초기
+    pred_day = lambda m: (
+        br(m) <= 6
+        or br(m) <= 18
+        or (br(m) <= 28 and _score_match(m) >= 95)
+    )
+    daytrade = _uniq_best(pred_day, sort_key=lambda m: (_ob_bonus(m), _score_match(m)))
+    if not daytrade:
+        daytrade = pool[:n]
+
+    # 스윙: 코스피 상위 50개·코스닥 상위 30개 풀에서 Δ가점 반영 정렬 후 합산
+    def _uniq_best_from(src: list[dict[str, Any]], pred: Any, *, max_n: int) -> list[dict[str, Any]]:
+        """src 리스트 안에서 pred 통과 종목을 _swing_sort_key 내림차순으로 최대 max_n개."""
+        cand = [m for m in src if pred(m)]
+        cand.sort(key=lambda m: (_ob_bonus(m), _swing_sort_key(m)), reverse=True)
+        seen: set[str] = set()
+        out: list[dict[str, Any]] = []
+        for m in cand:
+            t = str(m.get("ticker") or "").strip()
+            if not t or t in seen:
+                continue
+            seen.add(t)
+            out.append(m)
+            if len(out) >= max_n:
+                break
+        return out
+
+    pred_swing = lambda m: 3 <= br(m) <= 110
+
+    # 코스피/코스닥 분리 후 각각 점수 상위로 먼저 자름
+    kospi_pool = sorted(
+        [m for m in pool if str(m.get("market", "")) == "코스피"],
+        key=_score_match, reverse=True
+    )[:50]
+    kosdaq_pool = sorted(
+        [m for m in pool if str(m.get("market", "")) == "코스닥"],
+        key=_score_match, reverse=True
+    )[:50]
+
+    # 각 풀에서 Δ가점 반영 정렬로 스윙 후보 추출 (합계 최대 n개)
+    n_kospi = max(1, round(n * 50 / 100))  # 약 6개
+    n_kosdaq = max(1, n - n_kospi)  # 약 6개
+    swing_kospi = _uniq_best_from(kospi_pool, pred_swing, max_n=n_kospi)
+    swing_kosdaq = _uniq_best_from(kosdaq_pool, pred_swing, max_n=n_kosdaq)
+
+    # 합산 후 Δ가점 기준으로 최종 재정렬
+    swing = sorted(
+        swing_kospi + swing_kosdaq,
+        key=lambda m: (_ob_bonus(m), _swing_sort_key(m)),
+        reverse=True
+    )[:n]
+
+    # 후보 부족 시 기존 방식으로 폴백
+    if not swing:
+        swing = pool[: min(n, len(pool))]
+
+    # 장투: 수개월·눌림 — 진입 **오래됨** + 점수 버팀 + Δ1d 급락 아님(대략 수급 프록시)
+    def pred_lt(m: dict[str, Any]) -> bool:
+        b = br(m)
+        sc = _score_match(m)
+        rs = _ret_since_stage2_pct(m)
+        d1 = _daily_pick_rank_delta_1d_int(m)
+        if b >= 45:
+            return d1 >= -12
+        if b >= 28 and sc >= 85:
+            return rs >= -12.0 and d1 >= -15
+        if b >= 20 and sc >= 95:
+            return rs >= -18.0 and d1 >= -18
+        return False
+
+    def sort_lt(m: dict[str, Any]) -> tuple[int, float, int]:
+        return (br(m), _score_match(m), _daily_pick_rank_delta_1d_int(m))
+
+    longterm = _uniq_best(pred_lt, sort_key=sort_lt, reverse=True)
+    if not longterm:
+        tail = sorted(pool, key=br, reverse=True)[: max(n * 2, n)]
+        longterm = _uniq_best(lambda m: m in tail, sort_key=sort_lt, reverse=True)
+    if not longterm:
+        longterm = sorted(pool, key=lambda m: (br(m), _score_match(m)), reverse=True)[:n]
+    return {"daytrade": daytrade, "swing": swing, "longterm": longterm}
+
+
+def _pick_minimal_record(m: dict[str, Any]) -> dict[str, Any]:
+    close_v = m.get("close")
+    try:
+        close_v = float(close_v) if close_v is not None else None
+    except (TypeError, ValueError):
+        close_v = None
+    return {
+        "ticker": m.get("ticker", "") or "",
+        "name": m.get("name", "") or "",
+        "market": m.get("market", "") or "",
+        "score": round(_score_match(m), 2),
+        "bars": _bars_since_stage2(m),
+        "close": close_v,
+    }
+
+
+_JOURNAL_FILE = "daily_stock_journal.json"
+_JOURNAL_CAP = 45
+
+
+def _daily_pick_journal_path(here: Path) -> Path:
+    return here / _JOURNAL_FILE
+
+
+def _journal_load(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {"entries": []}
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        if isinstance(d, dict) and isinstance(d.get("entries"), list):
+            return d
+    except Exception:
+        pass
+    return {"entries": []}
+
+
+def _journal_save(path: Path, data: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    tmp.replace(path)
+
+
+def _journal_upsert_today(path: Path, today: str, picks: dict[str, list[dict[str, Any]]]) -> None:
+    data = _journal_load(path)
+    ent = [e for e in data["entries"] if e.get("date") != today]
+    slim: dict[str, list[dict[str, Any]]] = {
+        k: [_pick_minimal_record(m) for m in v] for k, v in picks.items()
+    }
+    ent.append({"date": today, "picks": slim})
+    ent.sort(key=lambda e: str(e.get("date", "")))
+    if len(ent) > _JOURNAL_CAP:
+        ent = ent[-_JOURNAL_CAP:]
+    data["entries"] = ent
+    _journal_save(path, data)
+
+
+def _journal_find_yesterday(entries: list[dict[str, Any]], today: str) -> dict[str, Any] | None:
+    try:
+        td = date.fromisoformat(today)
+    except ValueError:
+        return None
+    y = (td - timedelta(days=1)).isoformat()
+    for e in reversed(entries):
+        if e.get("date") == y:
+            return e
+    best: dict[str, Any] | None = None
+    for e in entries:
+        d = str(e.get("date") or "")
+        if not d or d >= today:
+            continue
+        if best is None or d > str(best.get("date") or ""):
+            best = e
+    return best
+
+
+def _ticker_index(matches: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for m in matches:
+        t = m.get("ticker")
+        if t:
+            out[str(t)] = m
+    return out
+
+
+def _fmt_ret_since(m: dict[str, Any], strategy: str = "longterm") -> str:
+    if strategy == "daytrade":
+        v = m.get("ret_daytrade_pct")
+    elif strategy == "swing":
+        v = m.get("ret_swing_pct")
+    else:
+        v = m.get("ret_since_entry_pct")
+    if v is not None:
+        try:
+            return f"{float(v):+.1f}%"
+        except (TypeError, ValueError):
+            pass
+    try:
+        return f'{float(m.get("ret_3m_pct") or 0):+.1f}%'
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _render_tab_daily_stock_picks() -> None:
+    """오늘의 픽 — 단타·스윙·장투 구분 + 어제 픽 복기(로컬 저널)."""
+    # ── 헤더 ────────────────────────────────────────────────
+    st.header("오늘의 픽")
+    st.caption("시장→섹터→종목 순서로 확인 · Stage2 종목만 추출 · 참고용")
+
+    here = Path(__file__).resolve().parent
+    matches, kt, qt, pk, qk = _merge_kospi_kosdaq_matches(here)
+    if not matches:
+        st.warning("스캔 결과가 없습니다. 코스피·코스닥 스캐너에서 먼저 분석하세요.")
+        return
+
+    today_kst = datetime.now(KST).date().isoformat()
+    buckets = _classify_daily_pick_buckets(matches, n=12)
+    _journal_upsert_today(_daily_pick_journal_path(here), today_kst, buckets)
+    st.caption(f"코스피 분석: **{kt}** · 코스닥 분석: **{qt}**")
+
+    # ── 공통 헬퍼 ────────────────────────────────────────────
+    def _ret_color(v: str) -> str:
+        try:
+            x = float(str(v).replace("%", "").replace("+", ""))
+            if x >= 10.0:
+                return "#15803d"
+            if x >= 3.0:
+                return "#166534"
+            if x >= 0.0:
+                return "#374151"
+            if x >= -5.0:
+                return "#991b1b"
+            return "#b91c1c"
+        except (TypeError, ValueError):
+            return "#94a3b8"
+
+    def _delta_color(v: str) -> str:
+        try:
+            x = float(str(v).replace("+", ""))
+            if x > 0:
+                return "#15803d"
+            if x < 0:
+                return "#b91c1c"
+            return "#64748b"
+        except (TypeError, ValueError):
+            return "#94a3b8"
+
+    def _disp_color(v: str) -> str:
+        """20일 이격 색상: 0~8% 초록, 9~15% 주황, 16%+ 빨강."""
+        try:
+            x = float(str(v).replace("%", "").replace("+", ""))
+            if x <= 8.0:
+                return "#15803d"
+            if x <= 15.0:
+                return "#b45309"
+            return "#b91c1c"
+        except (TypeError, ValueError):
+            return "#64748b"
+
+    def _highlight_cards(lst: list[dict[str, Any]], strategy: str) -> None:
+        """상위 3개 하이라이트 카드."""
+        top3 = lst[:3]
+        if not top3:
+            return
+        cols = st.columns(len(top3))
+        for col, m in zip(cols, top3):
+            name = m.get("name", "")
+            market = m.get("market", "")
+            score = round(_score_match(m), 1)
+            ret = _fmt_ret_since(m, strategy)
+            d1 = str(m.get("rank_delta_1d", "—") or "—")
+            d3 = str(m.get("rank_delta_3d", "—") or "—")
+            d6 = str(m.get("rank_delta_6d", "—") or "—")
+            bars = _bars_since_stage2(m)
+            bars_txt = f"{bars}일" if bars < 10_000 else "—"
+            d20 = _daily_pick_disparity_pct(m, 20)
+            d20_txt = f"{float(d20):+.1f}%" if d20 is not None else "—"
+            col.markdown(
+                f"""<div style="border:1px solid #e2e8f0;border-radius:10px;
+                    padding:0.6rem 0.75rem;background:#f8fafc;margin-bottom:0.3rem;">
+                  <div style="font-size:0.82rem;font-weight:700;color:#0f172a;
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{name}</div>
+                  <div style="font-size:0.68rem;color:#64748b;margin-bottom:0.2rem;">
+                      {market} · {score}점 · 진입 {bars_txt}</div>
+                  <div style="font-size:1.0rem;font-weight:800;color:{_ret_color(ret)};">{ret}</div>
+                  <div style="font-size:0.65rem;color:{_disp_color(d20_txt)};margin-top:0.1rem;">
+                      20일이격 {d20_txt}</div>
+                  <div style="font-size:0.65rem;margin-top:0.1rem;">
+                      <span style="color:{_delta_color(d1)};">Δ1d {d1}</span>
+                      &nbsp;<span style="color:{_delta_color(d3)};">Δ3d {d3}</span>
+                      &nbsp;<span style="color:{_delta_color(d6)};">Δ6d {d6}</span>
+                  </div>
+                </div>""",
+                unsafe_allow_html=True,
+            )
+
+    def _pick_table(lst: list[dict[str, Any]], strategy: str) -> None:
+        """핵심 컬럼 테이블 + 수익률·Δ·이격 색상 강조."""
+        if not lst:
+            st.info("후보가 없습니다. 스캐너에서 먼저 분석하세요.")
+            return
+        import pandas as _pd_pick
+
+        rows = []
+        for i, m in enumerate(lst, 1):
+            d20 = _daily_pick_disparity_pct(m, 20)
+            if strategy == "daytrade":
+                entry = m.get("entry_daytrade") or m.get("entry", "") or "—"
+            elif strategy == "swing":
+                entry = m.get("entry_swing") or m.get("entry", "") or "—"
+            else:
+                entry = m.get("entry", "") or "—"
+            rows.append({
+                "#": i,
+                "종목": m.get("name", ""),
+                "시장": m.get("market", ""),
+                "점수": round(_score_match(m), 1),
+                "진입후수익": _fmt_ret_since(m, strategy),
+                "20일이격": (f"{float(d20):+.1f}%" if d20 is not None else "—"),
+                "Δ1d": str(m.get("rank_delta_1d", "—") or "—"),
+                "Δ3d": str(m.get("rank_delta_3d", "—") or "—"),
+                "Δ6d": str(m.get("rank_delta_6d", "—") or "—"),
+                "진입일": str(entry)[:10] if entry and entry != "—" else "—",
+            })
+
+        df = _pd_pick.DataFrame(rows)
+
+        def _sty_ret(v: Any) -> str:
+            try:
+                x = float(str(v).replace("%", "").replace("+", ""))
+                if x >= 10.0:
+                    return "color:#15803d;font-weight:800;"
+                if x >= 3.0:
+                    return "color:#166534;font-weight:700;"
+                if x >= 0.0:
+                    return "color:#374151;"
+                if x >= -5.0:
+                    return "color:#991b1b;"
+                return "color:#b91c1c;font-weight:700;"
+            except (TypeError, ValueError):
+                return ""
+
+        def _sty_delta(v: Any) -> str:
+            try:
+                x = float(str(v).replace("+", ""))
+                if x > 0:
+                    return "color:#15803d;font-weight:600;"
+                if x < 0:
+                    return "color:#b91c1c;"
+                return ""
+            except (TypeError, ValueError):
+                return ""
+
+        def _sty_disp(v: Any) -> str:
+            try:
+                x = float(str(v).replace("%", "").replace("+", ""))
+                if x <= 8.0:
+                    return "color:#15803d;"
+                if x <= 15.0:
+                    return "color:#b45309;font-weight:600;"
+                return "color:#b91c1c;font-weight:700;"
+            except (TypeError, ValueError):
+                return ""
+
+        df_styled = (
+            df.style
+            .map(_sty_ret, subset=["진입후수익"])
+            .map(_sty_delta, subset=["Δ1d", "Δ3d", "Δ6d"])
+            .map(_sty_disp, subset=["20일이격"])
+        )
+        _st_dataframe_all_rows(
+            df_styled,
+            column_config={
+                "#": st.column_config.NumberColumn("#", width="small"),
+                "종목": st.column_config.TextColumn("종목"),
+                "시장": st.column_config.TextColumn("시장", width="small"),
+                "점수": st.column_config.NumberColumn("점수", format="%.1f"),
+                "진입후수익": st.column_config.TextColumn("진입후수익"),
+                "20일이격": st.column_config.TextColumn("20일이격"),
+                "Δ1d": st.column_config.TextColumn("Δ1d", width="small"),
+                "Δ3d": st.column_config.TextColumn("Δ3d", width="small"),
+                "Δ6d": st.column_config.TextColumn("Δ6d", width="small"),
+                "진입일": st.column_config.TextColumn("진입일"),
+            },
+        )
+
+    # ── 시장 강도 카드 ────────────────────────────────────────
+    kospi_matches = [m for m in matches if str(m.get("market", "")) == "코스피"]
+    kosdaq_matches = [m for m in matches if str(m.get("market", "")) == "코스닥"]
+    kospi_index_status = dict((pk or {}).get("index") or {})
+    kosdaq_index_status = dict((qk or {}).get("index") or {})
+
+    def _avg_score(lst: list[dict[str, Any]]) -> float:
+        return sum(_score_match(x) for x in lst) / len(lst) if lst else 0.0
+
+    def _pick_index_1d_pct(payload, idx) -> float | None:
+        for src in (idx, payload or {}):
+            for k in ("ret_1d_pct", "change_pct", "pct_change_1d", "chg_1d_pct", "daily_return_pct", "return_1d_pct"):
+                v = src.get(k)
+                try:
+                    if v is not None and str(v).strip() != "":
+                        return float(v)
+                except (TypeError, ValueError):
+                    continue
+        return None
+
+    kospi_stage2 = bool(kospi_index_status.get("is_stage2", False))
+    kosdaq_stage2 = bool(kosdaq_index_status.get("is_stage2", False))
+    kospi_avg = _avg_score(kospi_matches)
+    kosdaq_avg = _avg_score(kosdaq_matches)
+    kospi_1d = _pick_index_1d_pct(pk, kospi_index_status)
+    kosdaq_1d = _pick_index_1d_pct(qk, kosdaq_index_status)
+    kospi_count = len(kospi_matches)
+    kosdaq_count = len(kosdaq_matches)
+
+    def _mkt_badge(is_s2: bool, count: int, avg: float, ret_1d: float | None, label: str) -> str:
+        s2_txt = "✅ Stage2" if is_s2 else "⛔ Stage2 아님"
+        s2_color = "#15803d" if is_s2 else "#b91c1c"
+        ret_txt = f"{ret_1d:+.2f}%" if ret_1d is not None else "—"
+        ret_c = _ret_color(ret_txt)
+        return (
+            f'<div style="border:1px solid #e2e8f0;border-radius:10px;'
+            f'padding:0.6rem 0.8rem;background:#f8fafc;">'
+            f'<div style="font-size:0.88rem;font-weight:800;color:#0f172a;'
+            f'margin-bottom:0.2rem;">{label}</div>'
+            f'<div style="font-size:0.75rem;font-weight:700;color:{s2_color};'
+            f'margin-bottom:0.15rem;">{s2_txt}</div>'
+            f'<div style="font-size:0.72rem;color:#374151;">후보 {count}개 · 평균점수 {avg:.1f}</div>'
+            f'<div style="font-size:0.8rem;font-weight:700;color:{ret_c};'
+            f'margin-top:0.15rem;">1일 {ret_txt}</div>'
+            f'</div>'
+        )
+
+    mc1, mc2 = st.columns(2)
+    mc1.markdown(_mkt_badge(kospi_stage2, kospi_count, kospi_avg, kospi_1d, "코스피"), unsafe_allow_html=True)
+    mc2.markdown(_mkt_badge(kosdaq_stage2, kosdaq_count, kosdaq_avg, kosdaq_1d, "코스닥"), unsafe_allow_html=True)
+
+    # 시장 종합 판단
+    kospi_stronger = kosdaq_stronger = False
+    if kospi_stage2 and (kospi_count > kosdaq_count or kospi_avg > kosdaq_avg):
+        kospi_stronger = True
+    elif kosdaq_stage2 and (kosdaq_count > kospi_count or kosdaq_avg > kospi_avg + 3.0):
+        kosdaq_stronger = True
+    elif kospi_1d is not None and kosdaq_1d is not None:
+        if (kospi_1d - kosdaq_1d) >= 0.5:
+            kospi_stronger = True
+        elif (kosdaq_1d - kospi_1d) >= 0.5:
+            kosdaq_stronger = True
+
+    if kospi_stronger:
+        st.success("📈 코스피 강세 — 코스피 Stage2 종목 위주로 접근")
+    elif kosdaq_stronger:
+        st.success("🚀 코스닥 강세 — 코스닥 단타·스윙 중심으로 접근")
+    else:
+        st.info("⚖️ 혼조세 — 종목별 개별 점수와 Δ 모멘텀 우선 확인")
+
+    st.markdown("---")
+
+    # ── 전략 가이드 expander ─────────────────────────────────
+    with st.expander("📌 단타·스윙·장투 분류 기준", expanded=False):
+        st.markdown(
+            "**분류 기준**: Stage2 진입 후 경과 봉(영업일) 기준으로 탭을 나눕니다. "
+            "같은 종목이 여러 탭에 동시에 표시될 수 있고 탭 안에서는 최대 12개입니다.\n\n"
+            "| 구분 | 진입 후 경과 | 추가 조건 |\n"
+            "|------|------------|----------|\n"
+            "| **단타** | ~6봉 이내 (또는 ~18봉, 고점수면 ~28봉) | 점수·비과열 우선 |\n"
+            "| **스윙** | 3~110봉 | 점수 + Δ모멘텀(코스피50·코스닥30 풀) |\n"
+            "| **장투** | 28봉 이상 (기본 45봉+) | 점수 85+, 진입후수익 -12% 이상, Δ1d -12 이상 |\n\n"
+            "- 20봉 ≈ 1개월 / 60봉 ≈ 3개월\n"
+            "- **Δ1d·3d·6d**: 양수 = 순위 상승(모멘텀 강화), 음수 = 순위 하락(주의)\n"
+            "- **20일이격**: 0~8% 이상적 · 9~15% 주의 · 16%+ 과열\n"
+            "- 후보 부족 시 조건 완화 후 점수 상위로 자동 채움"
+        )
+
+    # ── 탭 ──────────────────────────────────────────────────
+    tip, tsw, tlt, trev = st.tabs(["단타", "스윙", "장투", "어제 복기"])
+
+    def _score_reason(m: dict[str, Any]) -> str:
+        """점수 근거를 한 줄 요약으로 반환."""
+        parts: list[str] = []
+        bars = _bars_since_stage2(m)
+        if bars < 10_000:
+            parts.append(f"진입{bars}일")
+        sc = _score_match(m)
+        if sc >= 150:
+            parts.append("고점수")
+        elif sc >= 100:
+            parts.append("중상점수")
+        r3m = m.get("ret_3m_pct")
+        try:
+            r3m_f = float(r3m or 0)
+            if r3m_f >= 30:
+                parts.append(f"3개월+{r3m_f:.0f}%")
+            elif r3m_f <= -20:
+                parts.append(f"3개월{r3m_f:.0f}%↓")
+        except (TypeError, ValueError):
+            pass
+        sec = (m.get("sector") or "").strip()
+        if sec and sec != "미분류":
+            parts.append(sec)
+        return " · ".join(parts) if parts else "—"
+
+    def _rows_for_table(lst: list[dict[str, Any]], strategy: str) -> list[dict[str, Any]]:
+        rows = []
+        for m in lst:
+            d20 = _daily_pick_disparity_pct(m, 20)
+            d50 = _daily_pick_disparity_pct(m, 50)
+            ob = _daily_pick_overbought_ok(m)
+            if strategy == "daytrade":
+                _entry = m.get("entry_daytrade") or m.get("entry", "") or "—"
+            elif strategy == "swing":
+                _entry = m.get("entry_swing") or m.get("entry", "") or "—"
+            else:
+                _entry = m.get("entry", "") or "—"
+            rows.append({
+                "종목": m.get("name", ""),
+                "시장": m.get("market", ""),
+                "점수": f'{round(_score_match(m), 1):.1f}',
+                "점수근거": _score_reason(m),
+                "20일이격": (f"{float(d20):+.1f}%" if d20 is not None else "—"),
+                "50일이격": (f"{float(d50):+.1f}%" if d50 is not None else "—"),
+                "초기2단계(비과열)": _daily_pick_stage2_status(m),
+                "진입일": _entry,
+                "진입후수익": _fmt_ret_since(m, strategy),
+                "Δ순위": m.get("rank_delta_1d", "—"),
+            })
+        return rows
+
+    def _yesterday_learn_daytrade_top5() -> list[dict[str, Any]]:
+        """어제 저널 단타 픽 + 오늘 스캔 스냅샷으로 단타 추천 Top5(휴리스틱, 참고용)."""
+        jpath = _daily_pick_journal_path(here)
+        journal = _journal_load(jpath)
+        entries = list(journal.get("entries") or [])
+        yent = _journal_find_yesterday(entries, today_kst)
+        if not yent:
+            return []
+        y_list = list((yent.get("picks") or {}).get("daytrade") or [])
+        if not y_list:
+            return []
+        idx = _ticker_index(matches)
+        scored: list[tuple[float, dict[str, Any]]] = []
+        seen: set[str] = set()
+        for rec in y_list:
+            tick = str(rec.get("ticker") or "").strip()
+            if not tick or tick in seen:
+                continue
+            seen.add(tick)
+            cur = idx.get(tick)
+            if not cur:
+                continue
+            d1 = _daily_pick_rank_delta_1d_int(cur)
+            sc = _score_match(cur)
+            d20 = _daily_pick_disparity_pct(cur, 20)
+            rd = float(d20) if d20 is not None else 8.0
+            over_pen = 0.0
+            if rd > 22:
+                over_pen = -18.0
+            elif rd > 16:
+                over_pen = -6.0
+            rdt = cur.get("ret_daytrade_pct")
+            try:
+                rdt_f = float(rdt) if rdt is not None else 0.0
+            except (TypeError, ValueError):
+                rdt_f = 0.0
+            # 어제 후보가 오늘도 살아 있고, 순위·모멘텀·이격이 과열이 아닐수록 가산
+            key = (
+                sc * 0.55
+                + max(d1, -5) * 1.8
+                + min(max(rd, 0.0), 18.0) * 0.65
+                + max(rdt_f, 0.0) * 0.12
+                + over_pen
+            )
+            # "오늘 단타 추천(어제 복기 기반)"은 종목별 실제 Stage2 진입일을 우선 표시
+            _entry_raw = cur.get("entry") or cur.get("entry_daytrade") or ""
+            _entry = str(_entry_raw).strip() if _entry_raw is not None else ""
+            if len(_entry) >= 10 and _entry[4:5] == "-" and _entry[7:8] == "-":
+                _entry = _entry[:10]
+            if not _entry:
+                _entry = "—"
+            scored.append(
+                (
+                    key,
+                    {
+                        "종목": str(cur.get("name") or ""),
+                        "시장": str(cur.get("market") or ""),
+                        "점수": round(sc, 1),
+                        "20일이격": (f"{float(d20):+.1f}%" if d20 is not None else "—"),
+                        "진입일": _entry,
+                        "Δ순위": cur.get("rank_delta_1d", "—"),
+                    },
+                )
+            )
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [row for _, row in scored[:5]]
+
+    # ── 단타 탭 ─────────────────────────────────────────────
+    with tip:
+        st.subheader("⚡ 단타 후보")
+        st.caption("Stage2 진입 초입(~6봉) 위주 · 짧게 보유 · 20일이격 0~15% 우선")
+
+        with st.expander("20일 이격 가이드", expanded=False):
+            st.markdown(
+                "| 20일이격 | 의미 | 추천도 |\n"
+                "|---------|------|-------|\n"
+                "| 0~8% | 상승 초기·적당한 모멘텀 | 🟢 최적 |\n"
+                "| 9~15% | 모멘텀 강함 | 🟡 양호 |\n"
+                "| 16~22% | 상당히 올라옴 | 🟠 주의 |\n"
+                "| 23%+ | 강한 과열 | 🔴 위험 |"
+            )
+
+        st.markdown("##### 🔥 Top 3")
+        _highlight_cards(buckets["daytrade"], "daytrade")
+        st.markdown("<div style='margin-top:0.5rem'></div>", unsafe_allow_html=True)
+
+        _learn_rows = _yesterday_learn_daytrade_top5()
+        if _learn_rows:
+            st.markdown("##### 📌 어제 복기 기반 추천 Top 5")
+            st.caption("어제 단타 후보 중 오늘도 살아남은 종목 · 순위·점수·이격 종합")
+            import pandas as _pd_learn
+            _learn_df = _pd_learn.DataFrame(_learn_rows)
+            st.dataframe(
+                _learn_df, use_container_width=True, hide_index=True,
+                column_config={
+                    "종목": st.column_config.TextColumn("종목"),
+                    "시장": st.column_config.TextColumn("시장", width="small"),
+                    "점수": st.column_config.NumberColumn("점수", format="%.1f"),
+                    "20일이격": st.column_config.TextColumn("20일이격"),
+                    "진입일": st.column_config.TextColumn("진입일"),
+                    "Δ순위": st.column_config.TextColumn("Δ순위"),
+                },
+            )
+
+        st.markdown("##### 📋 전체 후보")
+        _pick_table(buckets["daytrade"], "daytrade")
+        st.caption("참고용")
+        _wl_render_pick_quick_add(here, buckets["daytrade"], "dt")
+
+    # ── 스윙 탭 ─────────────────────────────────────────────
+    with tsw:
+        st.subheader("🟢 스윙 후보")
+        st.caption("코스피 상위 50개·코스닥 상위 30개 풀 · 순위 상승 모멘텀(Δ) + 점수 정렬")
+
+        st.markdown("##### 🏆 Top 3")
+        _highlight_cards(buckets["swing"], "swing")
+        st.markdown("<div style='margin-top:0.5rem'></div>", unsafe_allow_html=True)
+
+        with st.expander("스윙 진입 체크리스트", expanded=False):
+            st.markdown(
+                "- ✅ 지수(코스피·코스닥) Stage2 확인\n"
+                "- ✅ 섹터도 상승 추세인지 확인\n"
+                "- ✅ Δ1d·Δ3d 양수 (순위 올라오는 중)\n"
+                "- ✅ 20일이격 15% 이하\n"
+                "- ✅ 점수 80점 이상\n"
+                "- ✅ 진입후수익 플러스 또는 소폭 마이너스"
+            )
+
+        st.markdown("##### 📋 전체 후보")
+        _pick_table(buckets["swing"], "swing")
+        st.caption("참고용")
+        _wl_render_pick_quick_add(here, buckets["swing"], "sw")
+
+    # ── 장투 탭 ─────────────────────────────────────────────
+    with tlt:
+        st.subheader("📈 장투 후보")
+        st.caption("진입 28봉+ · 점수 85+ · 눌림에도 순위 유지 · 수개월 보유 관점")
+
+        st.markdown("##### 🏆 Top 3")
+        _highlight_cards(buckets["longterm"], "longterm")
+        st.markdown("<div style='margin-top:0.5rem'></div>", unsafe_allow_html=True)
+
+        with st.expander("장투 진입 체크리스트", expanded=False):
+            st.markdown(
+                "- ✅ 지수 Stage2 지속 여부 확인\n"
+                "- ✅ Δ1d -12 이상 유지 (수급 이탈 없음)\n"
+                "- ✅ 진입후수익 -12% 이상 (손실 제한)\n"
+                "- ✅ 점수 85점 이상 유지\n"
+                "- ✅ 섹터 강도 확인\n"
+                "- ✅ 분할매수 계획 수립"
+            )
+
+        st.markdown("##### 📋 전체 후보")
+        _pick_table(buckets["longterm"], "longterm")
+        st.caption("참고용")
+        _wl_render_pick_quick_add(here, buckets["longterm"], "lt")
+
+    # ── 어제 복기 탭 ─────────────────────────────────────────
+    with trev:
+        st.subheader("🔁 어제 픽 복기")
+        st.caption("어제 저장된 픽 → 오늘 종가 기준 1일 수익률 · 순위 변화 확인")
+
+        jpath = _daily_pick_journal_path(here)
+        journal = _journal_load(jpath)
+        entries = list(journal.get("entries") or [])
+        yent = _journal_find_yesterday(entries, today_kst)
+
+        if not yent:
+            st.info("어제 기록이 없습니다. 오늘부터 저널에 픽이 쌓이면 내일부터 확인 가능합니다.")
+        else:
+            st.success(f"비교 기준일: **{yent.get('date')}** ↔ 오늘 스캔")
+            idx = _ticker_index(matches)
+            yp = yent.get("picks") or {}
+            _yday_ref = str(yent.get("date") or "").strip() or "—"
+
+            def _yday_score_float_1f(rec0: dict[str, Any]) -> float:
+                v = rec0.get("score")
+                if v is None:
+                    return float("nan")
+                if isinstance(v, str) and v.strip() in ("—", "-", "", "None", "null"):
+                    return float("nan")
+                try:
+                    return round(float(v), 1)
+                except (TypeError, ValueError):
+                    return float("nan")
+
+            alive_rows: list[dict[str, Any]] = []
+            drop_rows: list[dict[str, Any]] = []
+
+            for key, lbl in [("daytrade", "단타"), ("swing", "스윙"), ("longterm", "장기")]:
+                for rec in yp.get(key) or []:
+                    tick = str(rec.get("ticker") or "")
+                    nm = rec.get("name", "")
+                    mk = rec.get("market", "")
+                    y_sc = _yday_score_float_1f(rec)
+                    cur = idx.get(tick) if tick else None
+                    if cur is None:
+                        drop_rows.append({
+                            "분류": lbl, "종목": nm, "시장": mk,
+                            "어제점수": y_sc, "상태": "탈락",
+                        })
+                    else:
+                        try:
+                            y_close = float(rec.get("close")) if rec.get("close") is not None else None
+                        except (TypeError, ValueError):
+                            y_close = None
+                        try:
+                            t_close = float(cur.get("close")) if cur.get("close") is not None else None
+                        except (TypeError, ValueError):
+                            t_close = None
+                        ret_txt = (
+                            f"{((t_close / y_close) - 1.0) * 100.0:+.1f}%"
+                            if y_close and y_close > 0 and t_close is not None else "—"
                         )
-                else:
-                    st.warning("시세를 가져올 수 없습니다. 티커를 확인하세요.")
+                        alive_rows.append({
+                            "분류": lbl,
+                            "종목": cur.get("name", nm),
+                            "시장": cur.get("market", mk),
+                            "어제점수": y_sc,
+                            "1일수익률": ret_txt,
+                            "오늘순위": str(cur.get("rank", "—")),
+                            "Δ1d": cur.get("rank_delta_1d", "—"),
+                        })
 
-            with h2:
-                # 1개월 미니 차트
-                if go is not None and q.get("closes") and len(q["closes"]) > 1:
-                    closes = q["closes"]
-                    dates  = q["dates"]
-                    c_color = "#34d399" if closes[-1] >= closes[0] else "#f87171"
-                    fig_mini = go.Figure()
-                    fig_mini.add_trace(go.Scatter(
-                        x=dates, y=closes, mode="lines",
-                        line=dict(color=c_color, width=2),
-                        fill="tozeroy", fillcolor=f"rgba({'52,211,153' if closes[-1] >= closes[0] else '248,113,113'},0.08)",
-                        hovertemplate="%{x}<br>%{y:,.2f}<extra></extra>",
-                        showlegend=False,
-                    ))
-                    fig_mini.update_layout(
-                        paper_bgcolor="rgba(0,0,0,0)",
-                        plot_bgcolor="rgba(15,12,60,0.20)",
-                        margin=dict(l=0, r=0, t=4, b=4),
-                        height=80,
-                        xaxis=dict(visible=False),
-                        yaxis=dict(visible=False),
+            if alive_rows:
+                import pandas as _pd_rev
+                df_rev = _pd_rev.DataFrame(alive_rows)
+
+                def _sty_rev_ret(v: Any) -> str:
+                    try:
+                        x = float(str(v).replace("%", "").replace("+", ""))
+                        if x >= 3.0:
+                            return "color:#15803d;font-weight:700;"
+                        if x >= 0.0:
+                            return "color:#166534;"
+                        if x <= -3.0:
+                            return "color:#b91c1c;font-weight:700;"
+                        return "color:#991b1b;"
+                    except (TypeError, ValueError):
+                        return ""
+
+                def _sty_rev_delta(v: Any) -> str:
+                    try:
+                        x = float(str(v).replace("+", ""))
+                        if x > 0:
+                            return "color:#15803d;font-weight:600;"
+                        if x < 0:
+                            return "color:#b91c1c;"
+                        return ""
+                    except (TypeError, ValueError):
+                        return ""
+
+                df_sty = (
+                    df_rev.style
+                    .map(_sty_rev_ret, subset=["1일수익률"])
+                    .map(_sty_rev_delta, subset=["Δ1d"])
+                )
+                try:
+                    df_sty = df_sty.format("{:.1f}", subset=["어제점수"], na_rep="—")
+                except Exception:
+                    pass
+
+                st.markdown("##### ✅ 생존 종목")
+                _st_dataframe_all_rows(
+                    df_sty,
+                    column_config={
+                        "분류": st.column_config.TextColumn("분류", width="small"),
+                        "종목": st.column_config.TextColumn("종목"),
+                        "시장": st.column_config.TextColumn("시장", width="small"),
+                        "어제점수": st.column_config.NumberColumn("어제점수", format="%.1f", help=f"{_yday_ref} 기준"),
+                        "1일수익률": st.column_config.TextColumn("1일수익률"),
+                        "오늘순위": st.column_config.TextColumn("오늘순위", width="small"),
+                        "Δ1d": st.column_config.TextColumn("Δ1d", width="small"),
+                    },
+                )
+
+            if drop_rows:
+                with st.expander(f"⛔ 탈락 종목 {len(drop_rows)}개", expanded=False):
+                    import pandas as _pd_drop
+                    st.dataframe(
+                        _pd_drop.DataFrame(drop_rows),
+                        use_container_width=True,
+                        hide_index=True,
                     )
-                    st.plotly_chart(fig_mini, use_container_width=True,
-                                    config={"displayModeBar": False})
+
+            if not alive_rows and not drop_rows:
+                st.info("어제 저장된 픽이 비어 있습니다.")
+
+    st.divider()
+    st.caption(
+        "전체 순위·차트는 **코스피** / **코스닥** Stage2 스캐너에서 확인하세요. "
+        "지수·섹터까지 겹쳐 보는 습관은 와인스타인식 **시장→섹터→종목** 순서와도 잘 맞습니다."
+    )
 
 
-def _render_group_market() -> None:
-    """📊 시장 그룹: 코스피·코스닥·자산시뮬·주식·환율·세계시각·주식계산기·관심주식"""
-    t1, t2, t3, t4, t5, t6, t7, t8 = st.tabs([
-        "📊 코스피", "📈 코스닥",
-        "💰 자산시뮬", "📈 주식", "💱 환율", "🌍 세계시각",
-        "📊 주식계산기", "⭐ 관심주식",
-    ])
-    with t1:
+FRED_API_OBS = "https://api.stlouisfed.org/fred/series/observations"
+FRED_API_SERIES = "https://api.stlouisfed.org/fred/series"
+FRED_API_SEARCH = "https://api.stlouisfed.org/fred/series/search"
+
+# [FRED](https://fred.stlouisfed.org/) 시리즈 ID 프리셋 — 조회 실패 시 하단 검색으로 대체 가능
+FRED_SERIES_CATALOG: dict[str, list[tuple[str, str]]] = {
+    "성장·활동": [
+        ("미국 실질 GDP (분기)", "GDPC1"),
+        ("미국 GDP(명목)", "GDP"),
+        ("미국 산업생산지수", "INDPRO"),
+        ("미국 소매판매", "RSAFS"),
+        ("총 산업 가동률 (Capacity Util.)", "TCU"),
+        ("개인소비지출(명목)", "PCE"),
+    ],
+    "물가·기대": [
+        ("미국 CPI(전체)", "CPIAUCSL"),
+        ("미국 Core CPI", "CPILFESL"),
+        ("미국 PPI(최종수요)", "PPIACO"),
+        ("미국 PCE 물가지수", "PCEPI"),
+        ("5Y 브레이크이븐 인플레", "T5YIE"),
+        ("10Y 브레이크이븐 인플레", "T10YIE"),
+        ("5Y5Y Forward 인플레", "T5YIFR"),
+    ],
+    "금리·채권": [
+        ("연준 기준금리 목표(상단)", "DFEDTARU"),
+        ("연준 기준금리 목표(하단)", "DFEDTARL"),
+        ("미국 3개월 국채", "DGS3MO"),
+        ("미국 2년 국채", "DGS2"),
+        ("미국 5년 국채", "DGS5"),
+        ("미국 10년 국채", "DGS10"),
+        ("미국 30년 국채", "DGS30"),
+        ("장단기 금리차 (10Y−2Y)", "T10Y2Y"),
+        ("장단기 금리차 (10Y−3M)", "T10Y3M"),
+        ("SOFR(담보금리)", "SOFR"),
+    ],
+    "고용": [
+        ("미국 실업률", "UNRATE"),
+        ("U-6 실업(광의)", "U6RATE"),
+        ("비농업 고용자수", "PAYEMS"),
+        ("주간 신규 실업수당청구", "ICSA"),
+        ("경제활동참가율", "CIVPART"),
+    ],
+    "환율·달러": [
+        ("미국 달러(광의 무역가중)", "DTWEXBGS"),
+        ("미국 달러(주요국)", "DTWEXM"),
+        ("USD/KRW (원/달러)", "DEXKOUS"),
+        ("USD/JPY", "DEXJPUS"),
+        ("USD/EUR", "DEXUSEU"),
+        ("USD/GBP", "DEXUSUK"),
+        ("USD/CNY", "DEXCHUS"),
+        ("USD/MXN", "DEXMXUS"),
+        ("미국 무역수지", "BOPGSTB"),
+    ],
+    "금·원자재·에너지": [
+        ("금 PM Fix (런던 USD/oz)", "GOLDPMGBD228NLBM"),
+        ("은 (런던 USD/oz)", "SLVPRUSD"),
+        ("WTI 원유 ($/bbl)", "DCOILWTICO"),
+        ("Brent 원유 ($/bbl)", "DCOILBRENTEU"),
+        ("미국 휘발유 가격(전국)", "GASREGW"),
+        ("구리 세계가 (USD/톤)", "PCOPPUSDM"),
+        ("철광석 수입가 (USD/톤)", "PIORECRUSDM"),
+        ("천연가스 (헨리허브)", "MHHNGSP"),
+    ],
+    "리스크·유동성·신용": [
+        ("VIX (공포지수)", "VIXCLS"),
+        ("Chicago Fed NFCI", "NFCI"),
+        ("ICE BofA 하이일드 OAS", "BAMLH0A0HYM2"),
+        ("St. Louis 금융스트레스 지수", "STLFSI4"),
+        ("연준 총자산 (WALCL)", "WALCL"),
+        ("역레포 일일 규모", "RRPONTSYD"),
+        ("M2 통화량", "M2SL"),
+    ],
+    "주식·위험자산": [
+        ("Wilshire 5000 총시가", "WILL5000IND"),
+        ("S&P 500", "SP500"),
+        ("나스닥 종합", "NASDAQCOM"),
+    ],
+    "주택": [
+        ("Case-Shiller 20 도시", "SPCS20RSA"),
+        ("FHFA 주택가격지수", "USSTHPI"),
+        ("30년 모기지 고정금리", "MORTGAGE30US"),
+        ("신규 주택착공", "HOUST"),
+        ("기존주택판매 (연율화 만건)", "EXHOSLUSM"),
+    ],
+}
+
+FRED_DEFAULT_CATEGORIES: tuple[str, ...] = (
+    "성장·활동",
+    "물가·기대",
+    "금리·채권",
+    "환율·달러",
+    "금·원자재·에너지",
+    "리스크·유동성·신용",
+)
+
+# Investing.com 등 시장 사이트와 교차 확인용 외부 링크(실시간 시세·캘린더는 FRED와 성격이 다름)
+INVESTING_COM_EXTERNAL_LINKS: tuple[tuple[str, str], ...] = (
+    ("경제 캘린더", "https://www.investing.com/economic-calendar/"),
+    ("세계 지수", "https://www.investing.com/indices/world-indices"),
+    ("미국 국채·금리", "https://www.investing.com/rates-bonds/u.s.-government-bonds"),
+    ("환율", "https://www.investing.com/currencies/single-currency-crosses"),
+    ("원자재", "https://www.investing.com/commodities/"),
+    ("주요 주식", "https://www.investing.com/equities/"),
+)
+
+# 버튼 한 번으로 «추가 시리즈 ID» 칸을 채우는 프리셋(Investing 메인에서 자주 보는 축)
+FRED_PRESET_ID_STRINGS: dict[str, str] = {
+    "핵심 10종": (
+        "SP500, DGS10, VIXCLS, DCOILWTICO, GOLDPMGBD228NLBM, DEXKOUS, CPIAUCSL, UNRATE, DTWEXBGS, T10Y2Y"
+    ),
+    "금리 곡선": "DGS3MO, DGS2, DGS5, DGS10, DGS30, T10Y2Y, T10Y3M, SOFR",
+    "물가·기대인플": "CPIAUCSL, CPILFESL, PCEPI, T5YIE, T10YIE, T5YIFR, PPIACO",
+    "원자재·VIX": "DCOILWTICO, DCOILBRENTEU, GOLDPMGBD228NLBM, SLVPRUSD, PCOPPUSDM, VIXCLS, BAMLH0A0HYM2",
+}
+
+# 핵심 스냅샷 카드(메트릭)에 우선 표시할 시리즈 ID — Investing 대시보드와 결이 비슷한 조합
+FRED_SNAPSHOT_SERIES_ORDER: tuple[str, ...] = (
+    "SP500",
+    "DGS10",
+    "VIXCLS",
+    "DCOILWTICO",
+    "DEXKOUS",
+)
+
+
+def _fred_api_key() -> str:
+    key = (os.environ.get("FRED_API_KEY") or os.environ.get("APT_FRED_API_KEY") or "").strip()
+    if key:
+        return key
+    here = Path(__file__).resolve().parent
+    for fn in ("fred_api_key.txt", "apt_fred_key.txt"):
+        p = here / fn
+        if p.is_file():
+            try:
+                line = (p.read_text(encoding="utf-8", errors="replace").splitlines() or [""])[0].strip()
+            except OSError:
+                line = ""
+            if line and not line.startswith("#"):
+                return line
+    return ""
+
+
+@st.cache_data(ttl=60 * 30, show_spinner=False)
+def _fred_fetch_series(series_id: str, api_key: str, start_date: str, end_date: str) -> Any:
+    params = {
+        "series_id": series_id,
+        "api_key": api_key,
+        "file_type": "json",
+        "observation_start": start_date,
+        "observation_end": end_date,
+        "sort_order": "asc",
+        "limit": "100000",
+    }
+    r = requests.get(FRED_API_OBS, params=params, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+    obs = list(data.get("observations") or [])
+    if pd is None:
+        return obs
+    rows: list[dict[str, Any]] = []
+    for o in obs:
+        ds = str(o.get("date") or "").strip()
+        vs = o.get("value")
+        if not ds or vs in (None, ".", ""):
+            continue
+        try:
+            rows.append({"date": pd.to_datetime(ds), "value": float(vs)})
+        except (TypeError, ValueError):
+            continue
+    if not rows:
+        return pd.DataFrame(columns=["date", "value"])
+    return pd.DataFrame(rows).sort_values("date")
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _fred_series_meta(series_id: str, api_key: str) -> dict[str, Any]:
+    """시리즈 제목·단위·주기 (표·툴팁용)."""
+
+    r = requests.get(
+        FRED_API_SERIES,
+        params={"series_id": series_id, "api_key": api_key, "file_type": "json"},
+        timeout=25,
+    )
+    r.raise_for_status()
+    ser = (r.json().get("seriess") or [None])[0]
+    if not ser:
+        return {"title": series_id, "units": "", "freq": ""}
+    return {
+        "title": str(ser.get("title") or series_id),
+        "units": str(ser.get("units") or ""),
+        "freq": str(ser.get("frequency_short") or ser.get("frequency") or ""),
+    }
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _fred_search_series_api(q: str, api_key: str, *, limit: int = 30) -> list[dict[str, Any]]:
+    """FRED 공개 검색 API — 시리즈 ID 탐색."""
+
+    q = (q or "").strip()
+    if len(q) < 2:
+        return []
+    r = requests.get(
+        FRED_API_SEARCH,
+        params={
+            "search_text": q,
+            "api_key": api_key,
+            "file_type": "json",
+            "limit": min(limit, 1000),
+            "order_by": "popularity",
+            "sort_order": "desc",
+        },
+        timeout=30,
+    )
+    r.raise_for_status()
+    return list(r.json().get("seriess") or [])
+
+
+def _fred_value_change_stats(s: "pd.Series") -> dict[str, Any]:
+    """일·월 등 혼합 주기에 맞춰 직전 봉·약 1년 전 대비 변화율."""
+
+    s = s.dropna().sort_index()
+    if s.empty:
+        return {"last": None, "d1_pct": None, "yoy_pct": None, "last_dt": None}
+    last_dt = s.index[-1]
+    last_v = float(s.iloc[-1])
+    prev_v = float(s.iloc[-2]) if len(s) >= 2 else None
+    d1 = ((last_v / prev_v) - 1.0) * 100.0 if prev_v not in (None, 0) else None
+    cutoff = last_dt - pd.DateOffset(months=12)
+    hist = s[s.index <= cutoff]
+    yoy = None
+    if len(hist) >= 1:
+        y0 = float(hist.iloc[-1])
+        if y0 != 0:
+            yoy = ((last_v / y0) - 1.0) * 100.0
+    return {"last": last_v, "d1_pct": d1, "yoy_pct": yoy, "last_dt": last_dt}
+
+
+def _fred_compile_insights(
+    merged: dict[str, Any],
+    titles: dict[str, str],
+) -> list[str]:
+    """동시에 로드된 시리즈로부터 간단한 매크로 인사이트(참고용, 투자 권유 아님)."""
+
+    def series_last(sid: str) -> float | None:
+        df = merged.get(sid)
+        if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+            return None
+        return float(df["value"].iloc[-1])
+
+    out: list[str] = []
+
+    t10y2y = series_last("T10Y2Y")
+    if t10y2y is not None:
+        if t10y2y < 0:
+            out.append(
+                "**장단기 금리차(10Y−2Y) < 0** — 미국 국채 곡선 **역전** 구간으로, 경기 후반·신용·금융 스트레스 논의와 자주 연결됩니다(과거와 미래를 보장하지는 않음)."
+            )
+        else:
+            out.append(
+                f"**장단기 금리차(10Y−2Y)** 약 **{t10y2y:.2f}%p** — 단기 대비 장기 금리 프리미엄이 **양수**인 상태입니다."
+            )
+
+    t10y3m = series_last("T10Y3M")
+    if t10y3m is not None and t10y3m < 0:
+        out.append(
+            "**10Y−3M 금리차 < 0** — 뉴욕 연은 등에서 언급되는 **역전 신호** 중 하나로, 장기 역사 샘플에서 경기침체 선행과 상관 연구가 있습니다."
+        )
+
+    vix = series_last("VIXCLS")
+    if vix is not None:
+        if vix >= 25:
+            out.append(f"**VIX** {vix:.1f} — 변동성·불확실성이 **높은** 편(장기 평균 대비 상대적 수치로 해석).")
+        elif vix <= 14:
+            out.append(f"**VIX** {vix:.1f} — 상대적으로 **낮은** 공포 지수(시장 안정 vs 과도한 안이함 논쟁은 별개).")
+
+    nfci = series_last("NFCI")
+    if nfci is not None:
+        out.append(
+            f"**Chicago Fed NFCI** {nfci:+.3f} — 0보다 **크면** 금융여건이 역사적 평균보다 **긴축**, **작으면** 완화 쪽으로 해석됩니다."
+        )
+
+    hy = series_last("BAMLH0A0HYM2")
+    if hy is not None:
+        out.append(
+            f"**하이일드 OAS** 약 **{hy:.0f} bp** — 위험채 스프레드(신용 리스크 프리미엄) 참고치입니다."
+        )
+
+    wti = series_last("DCOILWTICO")
+    brent = series_last("DCOILBRENTEU")
+    if wti is not None and brent is not None:
+        out.append(
+            f"**Brent − WTI** ≈ **${brent - wti:+.2f}/bbl** — 지역·품질·재고에 따른 **유종 간 갭**(단기 공급 신호로 읽는 경우가 많음)."
+        )
+
+    krw = merged.get("DEXKOUS")
+    if krw is not None and isinstance(krw, pd.DataFrame) and len(krw) >= 2:
+        stt = _fred_value_change_stats(krw.set_index("date")["value"])
+        if stt.get("yoy_pct") is not None:
+            out.append(
+                f"**USD/KRW** (원/달러) 1년 전 대비 약 **{stt['yoy_pct']:+.2f}%** — "
+                f"양수면 같은 달러당 **원화 표시 약세**(수치는 표본·주기에 따라 달라짐)."
+            )
+
+    t5 = series_last("T5YIE")
+    t10 = series_last("DGS10")
+    if t5 is not None and t10 is not None:
+        approx = t10 - t5
+        out.append(
+            f"**대략적 실질 장기금리(참고)** 10Y − 5Y 브레이크이븐 ≈ **{approx:+.2f}%p** "
+            f"(명목 10Y와 기대 인플레를 단순 차감한 휴리스틱)."
+        )
+
+    if not out:
+        out.append("선택한 지표만으로는 자동 인사이트가 제한됩니다. **금리·VIX·원유·환율**을 함께 넣으면 요약이 풍부해집니다.")
+    return out
+
+
+def _fred_render_investing_style_header() -> None:
+    """Investing.com 느낌의 강조 헤더 + 빠른 링크 행."""
+    st.markdown(
+        """
+<div style="background: linear-gradient(105deg, #0f172a 0%, #1e3a5f 42%, #0f172a 100%);
+  border: 1px solid rgba(59,130,246,0.35); border-left: 5px solid #3b82f6;
+  border-radius: 12px; padding: 18px 20px 16px; margin: 0 0 14px 0;
+  box-shadow: 0 8px 24px rgba(15,23,42,0.35);">
+  <div style="font-size: 0.72rem; letter-spacing: 0.14em; text-transform: uppercase; color: #93c5fd; font-weight: 700;">
+    Macro · FRED</div>
+  <div style="font-size: 1.42rem; font-weight: 800; color: #f8fafc; margin-top: 6px; line-height: 1.2;">
+    글로벌 매크로 대시보드</div>
+  <div style="font-size: 0.92rem; color: #94a3b8; margin-top: 10px; line-height: 1.45;">
+    공식 통계는 <strong style="color:#e2e8f0;">FRED</strong> · 시세·일정·뉴스 흐름은
+    <strong style="color:#93c5fd;">Investing.com</strong> 스타일로 교차 확인하세요.
+  </div>
+</div>
+        """,
+        unsafe_allow_html=True,
+    )
+    n_links = len(INVESTING_COM_EXTERNAL_LINKS)
+    if n_links:
+        lc = st.columns(min(n_links, 6))
+        for i, (lab, url) in enumerate(INVESTING_COM_EXTERNAL_LINKS[:6]):
+            with lc[i % len(lc)]:
+                st.markdown(f"[**{lab}**]({url})")
+    if n_links > 6:
+        st.caption(
+            " · ".join(f"[{lab}]({url})" for lab, url in INVESTING_COM_EXTERNAL_LINKS[6:])
+        )
+
+
+def _fred_render_macro_snapshot_metrics(summary_rows: list[dict[str, Any]]) -> None:
+    """Investing 메인에 자주 나오는 축과 비슷하게, 요약 표에서 핵심 ID만 메트릭 카드로."""
+    if not summary_rows:
+        return
+    by_id = {str(r.get("ID") or ""): r for r in summary_rows}
+    found: list[str] = [sid for sid in FRED_SNAPSHOT_SERIES_ORDER if sid in by_id]
+    if not found:
+        return
+    st.markdown("##### ⚡ 핵심 스냅샷 · 최종 관측값")
+    st.caption("아래 카드는 **이번에 조회된 지표 중** 위 목록에 해당할 때만 표시됩니다.")
+    cols = st.columns(len(found))
+    for i, sid in enumerate(found):
+        r = by_id[sid]
+        title = str(r.get("지표") or sid)
+        if len(title) > 22:
+            title = title[:20] + "…"
+        v = r.get("최종값")
+        d1 = r.get("직전대비%")
+        with cols[i]:
+            try:
+                delta = None
+                if d1 is not None:
+                    delta = f"{float(d1):+.2f}%"
+                if v is None:
+                    st.metric(label=title, value="—", delta=delta)
+                else:
+                    fv = float(v)
+                    vf = f"{fv:,.4g}" if abs(fv) >= 0.01 or fv == 0 else f"{fv:.4e}"
+                    st.metric(label=title, value=vf, delta=delta)
+            except (TypeError, ValueError):
+                st.metric(label=title, value="—")
+
+
+def _render_tab_fred_dashboard() -> None:
+    _fred_render_investing_style_header()
+    st.markdown(
+        "[FRED](https://fred.stlouisfed.org/) **공식 API**로 "
+        "**금리·물가·환율·유가·금속·VIX·신용** 등 거시 시계열을 불러옵니다. "
+        "[Investing.com](https://www.investing.com/) 은 **실시간 시세·경제 캘린더·뉴스**에 강해 "
+        "**같은 지표라도 숫자·주기가 다를 수** 있습니다(교육·모니터링용, 투자 권유 아님)."
+    )
+    api_key = _fred_api_key()
+    if not api_key:
+        st.warning(
+            "FRED API 키가 없습니다. 환경변수 `FRED_API_KEY`(또는 `APT_FRED_API_KEY`) 또는 "
+            "이 앱 폴더의 `fred_api_key.txt` 첫 줄에 키를 넣어 주세요. "
+            "키 발급: [FRED API Keys](https://fred.stlouisfed.org/docs/api/api_key.html)"
+        )
+        return
+    if pd is None:
+        st.error("pandas가 없어 지표 테이블/차트를 렌더링할 수 없습니다.")
+        return
+
+    if "fred_custom_series_ids" not in st.session_state:
+        st.session_state.fred_custom_series_ids = ""
+
+    all_categories = list(FRED_SERIES_CATALOG.keys())
+    default_cats = [c for c in FRED_DEFAULT_CATEGORIES if c in all_categories]
+    sel_categories = st.multiselect(
+        "카테고리",
+        all_categories,
+        default=default_cats or all_categories[:6],
+        help="너무 많이 선택하면 API 호출·렌더가 무거워질 수 있습니다.",
+    )
+
+    option_labels: list[str] = []
+    label_to_sid: dict[str, str] = {}
+    for cat in sel_categories:
+        for name, sid in FRED_SERIES_CATALOG.get(cat, []):
+            label = f"{name} [{sid}]"
+            option_labels.append(label)
+            label_to_sid[label] = sid
+
+    default_pick_n = min(10, len(option_labels))
+    default_labels = option_labels[:default_pick_n] if option_labels else []
+    pick_labels = st.multiselect(
+        "조회 지표 (복수)",
+        options=option_labels,
+        default=default_labels,
+        help="프리셋에서 고른 뒤, 필요하면 추가 시리즈 ID로 확장하세요.",
+    )
+    st.markdown("##### Investing 스타일 빠른 프리셋")
+    st.caption(
+        "아래 버튼은 **추가 시리즈 ID** 입력란을 채웁니다. "
+        "[Investing.com](https://www.investing.com/) 메인·시장 메뉴에서 자주 보는 축과 비슷하게 맞춰 두었습니다."
+    )
+    _pcols = st.columns(4)
+    for _pi, (_plab, _pids) in enumerate(FRED_PRESET_ID_STRINGS.items()):
+        with _pcols[_pi % 4]:
+            if st.button(_plab, key=f"fred_preset_{_pi}", use_container_width=True):
+                st.session_state.fred_custom_series_ids = _pids
+                st.rerun()
+    custom_ids_raw = st.text_input(
+        "추가 시리즈 ID (쉼표·공백 구분)",
+        key="fred_custom_series_ids",
+        placeholder="예: UNRATE, CPIAUCSL, DGS10, VIXCLS — 또는 위 버튼으로 자동 입력",
+    )
+    with st.expander("🔎 FRED에서 시리즈 ID 검색", expanded=False):
+        sq = st.text_input("검색어 (영문 권장)", value="", key="fred_search_q", placeholder="gold, korea, breakeven …")
+        if sq and len(sq.strip()) >= 2:
+            try:
+                hits = _fred_search_series_api(sq.strip(), api_key, limit=25)
+                if hits:
+                    rh = []
+                    for h in hits:
+                        rh.append(
+                            {
+                                "id": h.get("id"),
+                                "제목": (h.get("title") or "")[:120],
+                                "단위": h.get("units"),
+                                "주기": h.get("frequency_short"),
+                            }
+                        )
+                    st.dataframe(pd.DataFrame(rh), use_container_width=True, hide_index=True)
+                    st.caption("표의 `id` 열을 복사해 위 **추가 시리즈 ID**에 붙여 넣으면 됩니다.")
+                else:
+                    st.caption("검색 결과가 없습니다.")
+            except Exception as ex:
+                st.warning(f"검색 API 오류: {ex}")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        start_d = st.date_input("시작일", value=date.today() - timedelta(days=365 * 5))
+    with c2:
+        end_d = st.date_input("종료일", value=date.today())
+
+    series_ids: list[str] = [label_to_sid[x] for x in pick_labels]
+    custom_ids = [x.strip().upper() for x in re.split(r"[,;\s]+", custom_ids_raw) if x.strip()]
+    for sid in custom_ids:
+        if sid not in series_ids:
+            series_ids.append(sid)
+    if not series_ids:
+        st.info("지표를 1개 이상 선택하거나 추가 시리즈 ID를 입력해 주세요.")
+        return
+
+    start_s, end_s = start_d.isoformat(), end_d.isoformat()
+    merged: dict[str, Any] = {}
+    failed: list[str] = []
+    with st.spinner(f"FRED에서 지표 {len(series_ids)}개를 불러오는 중…"):
+        for sid in series_ids:
+            try:
+                dff = _fred_fetch_series(sid, api_key=api_key, start_date=start_s, end_date=end_s)
+                if isinstance(dff, pd.DataFrame) and not dff.empty:
+                    merged[sid] = dff
+                else:
+                    failed.append(sid)
+            except Exception:
+                failed.append(sid)
+
+    if failed:
+        st.caption(f"조회 실패 또는 빈 데이터(시리즈 종료·ID 오타 가능): `{', '.join(failed)}`")
+    if not merged:
+        st.error("표시할 데이터가 없습니다. 기간·시리즈 ID를 확인하거나 검색으로 ID를 찾아 주세요.")
+        return
+
+    titles: dict[str, str] = {}
+    summary_rows: list[dict[str, Any]] = []
+    wide: Any = None
+    for sid, dff in merged.items():
+        meta_u = ""
+        try:
+            meta = _fred_series_meta(sid, api_key)
+            titles[sid] = str(meta.get("title") or sid)
+            meta_u = str(meta.get("units") or "")
+        except Exception:
+            titles[sid] = sid
+        s = dff.set_index("date")["value"].sort_index()
+        stt = _fred_value_change_stats(s)
+        ld = stt.get("last_dt")
+        summary_rows.append(
+            {
+                "ID": sid,
+                "지표": titles.get(sid, sid),
+                "단위(메타)": meta_u,
+                "최종일": ld.strftime("%Y-%m-%d") if ld is not None else "",
+                "최종값": None if stt["last"] is None else round(float(stt["last"]), 6),
+                "직전대비%": None if stt["d1_pct"] is None else round(float(stt["d1_pct"]), 3),
+                "약1년전대비%": None if stt["yoy_pct"] is None else round(float(stt["yoy_pct"]), 3),
+            }
+        )
+        if wide is None:
+            wide = s.to_frame(sid)
+        else:
+            wide = wide.join(s.to_frame(sid), how="outer")
+
+    _fred_render_macro_snapshot_metrics(summary_rows)
+
+    st.subheader("📊 전체 요약 표 · 최신 관측")
+    _df_sum = pd.DataFrame(summary_rows)
+    try:
+        st.dataframe(
+            _df_sum,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "최종값": st.column_config.NumberColumn("최종값", format="%.6g"),
+                "직전대비%": st.column_config.NumberColumn("직전 Δ%", format="%.2f%%"),
+                "약1년전대비%": st.column_config.NumberColumn("1년 Δ%", format="%.2f%%"),
+                "지표": st.column_config.TextColumn("지표", width="large"),
+            },
+        )
+    except Exception:
+        st.dataframe(_df_sum, use_container_width=True, hide_index=True)
+
+    insights = _fred_compile_insights(merged, titles)
+    with st.expander("💡 매크로 인사이트 (자동 요약)", expanded=True):
+        for line in insights:
+            st.markdown(f"- {line}")
+
+    if wide is not None and not wide.empty:
+        chart_df_raw = wide.sort_index()
+        n_series = int(chart_df_raw.shape[1])
+        mode_labels = [
+            "정규화 (첫 유효값=100) — 단위가 달라도 추세 비교",
+            "한 그래프·원시값 — GDP·지수·%가 섞이면 거의 안 보임",
+            "패널 — 지표마다 별도 Y축 (세로 분리)",
+        ]
+        default_mode_idx = 0 if n_series >= 2 else 1
+        chart_mode = st.radio(
+            "시계열 차트 방식",
+            mode_labels,
+            index=min(default_mode_idx, len(mode_labels) - 1),
+            horizontal=True,
+            key="fred_ts_chart_mode",
+        )
+        use_norm = chart_mode.startswith("정규화")
+        use_panel = chart_mode.startswith("패널")
+
+        if use_norm:
+            chart_df = chart_df_raw.apply(
+                lambda col: (col / col.dropna().iloc[0]) * 100.0
+                if col.dropna().size and float(col.dropna().iloc[0]) != 0
+                else col
+            )
+            y_title = "지수 (첫 유효 관측=100)"
+        else:
+            chart_df = chart_df_raw
+            y_title = "원시 수준 (시리즈별 단위 상이)"
+
+        if not use_norm and not use_panel and n_series >= 2:
+            st.warning(
+                "지표마다 **단위·크기**(조 달러 vs % 등)가 다르면 한 Y축에 겹쳐 보이지 않습니다. "
+                "**정규화** 또는 **패널**을 권장합니다."
+            )
+
+        st.subheader("📈 시계열 차트")
+        pal = (
+            "#7dd3fc",
+            "#fda4af",
+            "#86efac",
+            "#c4b5fd",
+            "#fcd34d",
+            "#f9a8d4",
+            "#67e8f9",
+            "#bef264",
+        )
+        if go is not None and use_panel and n_series >= 1:
+            from plotly.subplots import make_subplots  # noqa: PLC0415
+
+            sub_titles = [f"{c}" for c in chart_df_raw.columns]
+            fig_p = make_subplots(
+                rows=max(n_series, 1),
+                cols=1,
+                shared_xaxes=True,
+                vertical_spacing=min(0.06, 0.5 / max(n_series, 1)),
+                subplot_titles=sub_titles,
+            )
+            for i, col in enumerate(chart_df_raw.columns, start=1):
+                fig_p.add_trace(
+                    go.Scatter(
+                        x=chart_df_raw.index,
+                        y=chart_df_raw[col],
+                        mode="lines",
+                        line=dict(width=1.5, color=pal[(i - 1) % len(pal)]),
+                        name=str(col),
+                        showlegend=False,
+                        connectgaps=False,
+                    ),
+                    row=i,
+                    col=1,
+                )
+            fig_p.update_layout(
+                template="plotly_dark",
+                height=min(100 * n_series + 120, 2200),
+                margin=dict(t=28, b=32, l=52, r=20),
+                paper_bgcolor="rgba(15,23,42,0.4)",
+                plot_bgcolor="rgba(15,23,42,0.2)",
+            )
+            fig_p.update_xaxes(gridcolor="rgba(148,163,184,0.12)", showgrid=True)
+            fig_p.update_yaxes(gridcolor="rgba(148,163,184,0.12)", showgrid=True)
+            st.plotly_chart(fig_p, use_container_width=True, config={"displayModeBar": True})
+        elif go is not None:
+            fig = go.Figure()
+            for i, col in enumerate(chart_df.columns):
+                fig.add_trace(
+                    go.Scatter(
+                        x=chart_df.index,
+                        y=chart_df[col],
+                        name=f"{col} — {titles.get(str(col), col)}"[:72],
+                        mode="lines",
+                        line=dict(width=1.6, color=pal[i % len(pal)]),
+                        connectgaps=False,
+                    )
+                )
+            fig.update_layout(
+                template="plotly_dark",
+                height=460,
+                margin=dict(t=36, b=44, l=52, r=24),
+                legend=dict(orientation="h", yanchor="bottom", y=1.07, x=0, font=dict(size=9)),
+                xaxis=dict(gridcolor="rgba(148,163,184,0.15)", title="날짜"),
+                yaxis=dict(
+                    title=y_title,
+                    gridcolor="rgba(148,163,184,0.15)",
+                    zerolinecolor="rgba(148,163,184,0.25)",
+                ),
+                paper_bgcolor="rgba(15,23,42,0.4)",
+                plot_bgcolor="rgba(15,23,42,0.25)",
+            )
+            st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": True})
+        else:
+            st.line_chart(chart_df, use_container_width=True)
+        with st.expander("원시 데이터 (병합 시계열)", expanded=False):
+            st.caption("차트가 정규화여도 이 표는 **원시 병합값**입니다.")
+            st.dataframe(chart_df_raw.tail(500), use_container_width=True)
+
+    st.caption(
+        "FRED에는 수십만 개 시리즈가 있습니다. 위 검색으로 ID를 찾거나 "
+        "[FRED](https://fred.stlouisfed.org/)에서 시리즈 코드를 복사해 확장하세요. "
+        "실시간 시세·경제일정은 [Investing.com 경제 캘린더](https://www.investing.com/economic-calendar/) 등과 함께 보세요. "
+        "API: [fred.stlouisfed.org/docs/api](https://fred.stlouisfed.org/docs/api/fred)"
+    )
+
+
+def _render_tab_ml_stock_picks() -> None:
+    st.header("ML 종목 선정 리포트")
+    st.caption(
+        "로컬 스크립트 `ML/stock_ml_selector.py`가 만든 **CSV/JSON/HTML**을 읽어 표시합니다. "
+        "아래 **「이게 내가 생각한 그 ML인가요?」**를 꼭 읽어 주세요."
+    )
+
+    with st.expander("ML 선정이 무엇인지 · 제가 생각한 것과 같은가요?", expanded=True):
+        st.markdown(
+            """
+### 한 줄 요약
+**「앞으로 가장 많이 오를 종목」을 미리 찍어 주는 프로그램이 아닙니다.**  
+코스피·코스닥·(테마) Stage2 스캔에서 **이미 뽑힌 매칭 종목들**만 모아, 숫자 특성이 비슷한 패턴으로 **다시 줄 세운 참고용 순위**입니다.
+
+와인스타인식으로 말하면 **이미 2단계(어드밴싱) 후보 풀 안에서만** 다시 줄을 세운 것이라, **지수·섹터가 받쳐 주는지**는 여전히 **코스피/코스닥 스캐너·섹터 탭**에서 따로 보는 것이 맞습니다.
+
+---
+
+### 무슨 데이터를 쓰나
+- `kospi_data/results_web.json`, `kosdaq_data/results_web.json`, `tema_stage2_data/results_web.json` 의 **matches** 를 합칩니다.
+- KRX 마스터(`kospi_kosdaq_all.csv` 등)로 **보통주·티커**를 맞춥니다.
+
+### 모형이 하는 일 (코드 기준)
+- **입력 특성(예)**: Stage2 점수, 진입 후 경과 봉, RS, 3개월 수익률, 거래량 비율, 시가총액(log), 영업이익률 등.
+- **라벨(약한 지도학습)**: 같은 시점 스냅샷 안에서  
+  **「순위가 상위권(20위 이내)이면서 3개월 수익률이 샘플 중앙값 이상」** 인 종목을 긍정(1)으로 두고,  
+  **로지스틱 회귀(자체 구현)** 로 가중치를 맞춥니다.
+- **ml_score**: 위 모형의 확률을 0~100 근사로 올린 값.  
+- **선정**: `ml_score`가 **전체 후보 중 상위 약 15%(85% 분위)** 이상인 종목(없으면 상위 30개 등으로 완화).
+
+### 그래서 “선점”과는 어떻게 다른가
+- **미래 주가·수익률을 예측**하지 않습니다. **과거 스냅샷에서 만든 규칙**으로 현재 후보를 재정렬한 것입니다.
+- **자동 매수·목표가·손절가**를 주지 않습니다. 같은 Stage2 유니버스 안에서 **관심 종목을 줄이는 2차 필터** 정도로 보는 것이 맞습니다.
+- 시장 구조가 바뀌면 패턴이 무너질 수 있고, **과최적화·표본 편향**에 취약합니다.
+
+### 이렇게 쓰면 좋다
+- 코스피/코스닥/테마 스캐너를 먼저 돌린 뒤, **너무 많을 때 후보를 줄이거나 정렬할 참고**로 쓰기.
+- 반드시 **공시·섹터·리스크**는 별도로 확인. 투자 권유가 아닙니다.
+
+---
+생성 명령: `py -3 streamlit/ML/stock_ml_selector.py` (경로는 환경에 맞게)
+            """
+        )
+
+    ml_dir = Path(__file__).resolve().parent / "ML" / "results"
+    csv_path = ml_dir / "selected_stocks.csv"
+    json_path = ml_dir / "selected_stocks.json"
+    html_path = ml_dir / "report.html"
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("CSV", "준비됨" if csv_path.is_file() else "없음")
+    c2.metric("JSON", "준비됨" if json_path.is_file() else "없음")
+    c3.metric("HTML", "준비됨" if html_path.is_file() else "없음")
+
+    if not csv_path.is_file():
+        st.info(
+            "ML 결과가 아직 없습니다. 아래 명령으로 생성해 주세요:\n\n"
+            "`py -3 c:\\code\\SynologyDrive\\streamlit\\ML\\stock_ml_selector.py`"
+        )
+        return
+
+    if pd is None:
+        st.error("pandas가 없어 ML 결과 표를 표시할 수 없습니다.")
+        return
+
+    try:
+        df = pd.read_csv(csv_path, encoding="utf-8-sig")
+    except Exception as e:
+        st.error(f"CSV 로드 실패: {e}")
+        return
+
+    st.subheader("ML 선정 종목")
+    st.dataframe(df, use_container_width=True, hide_index=True)
+
+    st.subheader("리포트 파일")
+    st.code(str(html_path), language="text")
+    st.caption("브라우저에서 열기: `file:///C:/code/SynologyDrive/streamlit/ML/results/report.html`")
+
+    if html_path.is_file():
+        try:
+            html_text = html_path.read_text(encoding="utf-8", errors="replace")
+            with st.expander("리포트 미리보기(요약)", expanded=False):
+                st.components.v1.html(html_text, height=720, scrolling=True)
+        except OSError:
+            pass
+
+
+def _wl_render_login_form(here: Path) -> None:
+    _wl_ensure_preset_users(here)
+    st.subheader("빠른 로그인")
+    st.caption(
+        f"프리셋 계정 기본 비밀번호: `{_WL_PRESET_SLOT_PW}` · "
+        "추가한 계정도 아래 버튼으로 즉시 로그인할 수 있습니다."
+    )
+    quick_accounts = _wl_collect_quick_accounts(here)
+    per_row = 4
+    for s in range(0, len(quick_accounts), per_row):
+        row = quick_accounts[s:s + per_row]
+        cols = st.columns(per_row)
+        for i, (uid, label) in enumerate(row):
+            with cols[i]:
+                if st.button(label, key=f"wl_quick_login_{uid}", use_container_width=True):
+                    # 빠른 로그인은 폼 입력 없이 바로 세션 로그인 처리
+                    st.session_state["wl_user"] = uid
+                    st.session_state["stk_watchlist"] = _wl_get_tickers(here, uid)
+                    st.rerun()
+
+    st.markdown("---")
+    if "wl_show_add_account_form" not in st.session_state:
+        st.session_state["wl_show_add_account_form"] = False
+    if st.button("➕ 새 계정 추가하기", key="wl_btn_show_add_account", type="primary", use_container_width=True):
+        st.session_state["wl_show_add_account_form"] = True
+        st.rerun()
+
+    if st.session_state.get("wl_show_add_account_form", False):
+        with st.container(border=True):
+            st.markdown("**새 계정 정보 입력**")
+            new_nick = st.text_input("별명", key="wl_new_nick", placeholder="예: 민수")
+            new_id = st.text_input("아이디", key="wl_new_id", placeholder="예: user_g 또는 minsu")
+            new_pw = st.text_input("비밀번호", key="wl_new_pw", type="password", placeholder="비밀번호")
+            c_save, c_cancel = st.columns(2)
+            with c_save:
+                if st.button("✅ 저장하고 추가", key="wl_btn_add_account_save", type="primary", use_container_width=True):
+                    uid = new_id.strip()
+                    nick = new_nick.strip()
+                    ok, msg = _wl_register(here, uid, new_pw)
+                    if not ok:
+                        st.error(msg)
+                    else:
+                        prefix = _wl_next_quick_prefix(here)
+                        label = f"{prefix} · {nick or uid}"
+                        _wl_upsert_quick_label(here, uid, label)
+                        st.success(f"{label} 계정이 추가되었습니다.")
+                        st.session_state["wl_show_add_account_form"] = False
+                        st.rerun()
+            with c_cancel:
+                if st.button("취소", key="wl_btn_add_account_cancel", use_container_width=True):
+                    st.session_state["wl_show_add_account_form"] = False
+                    st.rerun()
+
+    st.divider()
+    uid_in = st.text_input("아이디", key="wl_uid_login", placeholder="aaa")
+    pw_in = st.text_input("비밀번호", key="wl_pw_login", type="password", placeholder="bbb")
+    if st.button("로그인", key="wl_btn_login", type="primary", use_container_width=True):
+        if _wl_login(here, uid_in.strip(), pw_in):
+            st.session_state["wl_user"] = uid_in.strip()
+            st.session_state["stk_watchlist"] = _wl_get_tickers(here, uid_in.strip())
+            st.rerun()
+        else:
+            st.error("아이디 또는 비밀번호가 틀렸습니다.")
+
+
+def _wl_render_register_form(here: Path) -> None:
+    uid_r = st.text_input("아이디 (2자 이상)", key="wl_uid_reg", placeholder="원하는 아이디")
+    pw_r = st.text_input("비밀번호", key="wl_pw_reg", type="password", placeholder="원하는 비밀번호")
+    if st.button("회원가입", key="wl_btn_reg", type="primary", use_container_width=True):
+        ok, msg = _wl_register(here, uid_r.strip(), pw_r)
+        if ok:
+            st.success(f"{msg} 상단 메뉴 **로그인**에서 로그인하세요.")
+        else:
+            st.error(msg)
+
+
+def _render_wl_login_page(here: Path) -> None:
+    st.header(_WL_NAV_LOGIN)
+    cur = st.session_state.get("wl_user")
+    if cur:
+        st.success(f"이미 **{cur}** 님으로 로그인되어 있습니다.")
+        if st.button("로그아웃", key="wl_page_login_logout"):
+            del st.session_state["wl_user"]
+            st.session_state.pop("stk_watchlist", None)
+            st.rerun()
+        st.caption("관심 목록은 **관심주식** 메뉴에서 확인하세요.")
+        return
+    st.caption(
+        "관심 주식 저장에 사용합니다. 테스트 계정: `aaa` / `bbb` · "
+        f"빠른 슬롯: `user_a`,`user_d`,`user_e`,`user_f` / `{_WL_PRESET_SLOT_PW}`"
+    )
+    with _st_try_border_container():
+        st.markdown(
+            "> 비밀번호는 `watchlist_data/users.json`에 **SHA-256 해시**로만 저장됩니다."
+        )
+    _wl_render_login_form(here)
+
+
+def _render_wl_register_page(here: Path) -> None:
+    st.header(_WL_NAV_REGISTER)
+    if st.session_state.get("wl_user"):
+        u = str(st.session_state["wl_user"])
+        st.info(f"**{u}** 님으로 로그인 중입니다. 다른 계정을 만들려면 로그아웃하세요.")
+        if st.button("로그아웃", key="wl_page_reg_logout"):
+            del st.session_state["wl_user"]
+            st.session_state.pop("stk_watchlist", None)
+            st.rerun()
+        return
+    st.caption("아이디 2자 이상 · 비밀번호를 입력하세요.")
+    _wl_render_register_form(here)
+
+
+def _render_group_market(selected: str) -> None:
+    """상단 메뉴에서 고른 한 화면만 렌더(시장 4종 + 로그인·회원가입)."""
+    here = Path(__file__).resolve().parent
+    opts = list(_SIDEBAR_NAV_OPTIONS)
+    raw_selected = str(selected or "").strip()
+    page_slug = str(st.session_state.get("page") or "").strip().lower()
+    alias_to_full = {
+        "오늘의픽": "오늘의 픽",
+        "코스피": "코스피 스캐너",
+        "코스닥": "코스닥 스캐너",
+        "ETF": "ETF 스캐너",
+        "관심": "관심주식",
+        "로그인": _WL_NAV_LOGIN,
+        "가입": _WL_NAV_REGISTER,
+        "pick": "오늘의 픽",
+        "kospi": "코스피 스캐너",
+        "kosdaq": "코스닥 스캐너",
+        "etf": "ETF 스캐너",
+        "wl": "관심주식",
+        "login": _WL_NAV_LOGIN,
+        "join": _WL_NAV_REGISTER,
+    }
+    if raw_selected in opts:
+        pick = raw_selected
+    elif raw_selected in alias_to_full:
+        pick = alias_to_full[raw_selected]
+    elif page_slug in _PAGE_SLUG_TO_FULL:
+        pick = _PAGE_SLUG_TO_FULL[page_slug]
+    else:
+        pick = _MARKET_NAV_OPTIONS[0]
+    if pick == _WL_NAV_LOGIN:
+        _render_wl_login_page(here)
+    elif pick == _WL_NAV_REGISTER:
+        _render_wl_register_page(here)
+    elif pick == "오늘의 픽":
+        _render_tab_daily_stock_picks()
+    elif pick == "코스피 스캐너":
         _render_page_kospi()
-    with t2:
+    elif pick == "코스닥 스캐너":
         _render_page_kosdaq()
-    with t3:
-        _render_tab_asset_sim()
-    with t4:
-        _render_tab_stock()
-    with t5:
-        _render_tab_fx()
-    with t6:
-        _render_tab_clocks()
-    with t7:
-        _render_tab_stock_calc()
-    with t8:
+    elif pick == "ETF 스캐너":
+        _render_page_etf()
+    else:
         _render_tab_stock_watchlist()
 
 
@@ -4667,31 +8358,25 @@ border-left:4px solid #6366f1;margin-bottom:0.8rem;">
         unsafe_allow_html=True,
     )
 
-    # ── 실까 · 아파트미 빠른 링크 ──────────────────────────────
-    st.markdown(
-        "<div style='display:flex;gap:0.45rem;flex-wrap:wrap;margin-bottom:0.7rem;'>"
-        + "".join(
-            f"<a href='{url}' target='_blank' style='padding:0.28rem 0.6rem;"
-            f"background:rgba(99,102,241,0.22);border-radius:18px;"
-            f"color:#a5b4fc;font-size:0.82rem;text-decoration:none;"
-            f"border:1px solid rgba(129,140,248,0.3);'>{lbl}</a>"
-            for lbl, url in [
-                ("📲 실까 앱", "https://naver.me/xEX1mw8c"),
-                ("🔄 반등 실거래 (아파트미)", "https://apt2.me/apt/AptMonthBfSin.jsp"),
-                ("🗺️ 실거래 지도", "https://apt2.me/apt/MapList.jsp"),
-                ("📅 일별 신거래", "https://apt2.me/apt/map_day.jsp"),
-                ("📊 KB 주택동향", "https://kbland.kr"),
-                ("🏠 아실 (매물 추적)", "https://asil.kr"),
-            ]
-        )
-        + "</div>",
-        unsafe_allow_html=True,
+    st.caption(
+        "아파트 실거래·지도 바로가기는 **부동산 → 🔥 실거래 현황** 탭을 이용하세요. "
+        "여기서는 물량·거래 변화를 직접 입력하거나(아래), 서버에 `MOLIT_API_KEY`가 있으면 API 자동 분석을 씁니다."
     )
 
-    api_key = st.session_state.get("molit_api_key", "")
+    api_key = (
+        (
+            os.environ.get("MOLIT_API_KEY")
+            or os.environ.get("DATA_GO_KR_SERVICE_KEY")
+            or os.environ.get("APT_SERVICE_KEY")
+            or ""
+        )
+        .strip()
+    )
     if not api_key:
-        st.info("🔑 '실거래 현황' 탭에서 국토교통부 API 키를 먼저 입력하면\n"
-                "지역별 거래량 자동 분석이 활성화됩니다.")
+        st.caption(
+            "국토부 거래량 자동 비교는 "
+            "`MOLIT_API_KEY` / `DATA_GO_KR_SERVICE_KEY` / `APT_SERVICE_KEY` 설정 시에만 표시됩니다."
+        )
 
     st.divider()
 
@@ -4719,15 +8404,22 @@ border-left:4px solid #6366f1;margin-bottom:0.8rem;">
                                        key=f"radar_reg_{idx}",
                                        label_visibility="collapsed" if idx > 0 else "visible")
             with rc2:
-                prev_v = st.number_input(r_labels[0] if idx == 0 else "",
-                                         min_value=0, value=row["전월"],
-                                         key=f"radar_prev_{idx}",
-                                         label_visibility="collapsed" if idx > 0 else "visible")
+                # 빈 label("") 는 일부 Streamlit 버전에서 number_input 예외 유발 → 동일 문구 + 상위 행만 표시
+                prev_v = st.number_input(
+                    r_labels[0],
+                    min_value=0,
+                    value=int(row["전월"]),
+                    key=f"radar_prev_{idx}",
+                    label_visibility="visible" if idx == 0 else "collapsed",
+                )
             with rc3:
-                curr_v = st.number_input(r_labels[1] if idx == 0 else "",
-                                         min_value=0, value=row["금월"],
-                                         key=f"radar_curr_{idx}",
-                                         label_visibility="collapsed" if idx > 0 else "visible")
+                curr_v = st.number_input(
+                    r_labels[1],
+                    min_value=0,
+                    value=int(row["금월"]),
+                    key=f"radar_curr_{idx}",
+                    label_visibility="visible" if idx == 0 else "collapsed",
+                )
             with rc4:
                 if idx == 0:
                     st.markdown("<br>", unsafe_allow_html=True)
@@ -4947,19 +8639,331 @@ border-left:4px solid #6366f1;margin-bottom:0.8rem;">
 """)
 
 
+def _load_apt_export_payload() -> tuple[dict[str, Any] | None, Any]:
+    """`apt/SynologyDrive` 배치 export 결과(JSON + charts/) 경로 탐색."""
+    import json
+    from pathlib import Path
+
+    here = Path(__file__).resolve().parent
+    paths: list[Path] = []
+    rjson = (os.environ.get("APT_RESULTS_JSON") or "").strip()
+    pdir = (os.environ.get("APT_PAYLOAD_DIR") or "").strip()
+    export_dir = (os.environ.get("EXPORT_DIR") or "").strip()
+    if rjson:
+        paths.append(Path(rjson))
+    for d in (pdir, export_dir):
+        if d:
+            base = Path(d)
+            paths.extend(
+                [base / "results_web.json", base / "nas_web_payload_apt" / "results_web.json"]
+            )
+    paths.extend(
+        [
+            here / "apt_data" / "results_web.json",
+        ]
+    )
+    seen: set[str] = set()
+    for p in paths:
+        rp = str(p.resolve()) if p.exists() else str(p)
+        if rp in seen:
+            continue
+        seen.add(rp)
+        try:
+            if p.is_file():
+                with open(p, encoding="utf-8") as f:
+                    return json.load(f), p.parent
+        except (OSError, json.JSONDecodeError, ValueError):
+            continue
+    return None, None
+
+
+def _render_tab_apt_export_dashboard() -> None:
+    """@apt 배치 분석 리포트 — `apt_data/` 동기화 또는 APT_RESULTS_JSON / APT_PAYLOAD_DIR."""
+    from pathlib import Path
+
+    payload, root = _load_apt_export_payload()
+    st.header("🏢 APT 거시·단지 리포트")
+    st.caption(
+        "배치: 이 폴더에서 **`py -3 run_portal_batch.py`** (또는 **`run_portal_batch.cmd`**). "
+        "APT는 **하루 1회**만 갱신되고, 나머지는 매 회 실행됩니다. "
+        "별도 경로: **APT_RESULTS_JSON** / **EXPORT_DIR** / **APT_PAYLOAD_DIR**."
+    )
+    if not payload:
+        st.info("표시할 APT 분석 파일이 없습니다. 위 경로로 동기화하면 이 탭에 요약·차트가 나타납니다.")
+        return
+
+    st.markdown(f"**마지막 분석:** {payload.get('last_analysis_time') or '-'}")
+
+    apts = payload.get("apts") or []
+    rs = payload.get("region_summary") or []
+    t_sale, t_jeonse = st.tabs(["🏢 APT 리포트", "🔑 전세 리포트"])
+
+    def _apt_soft_gray_styler(df):
+        if pd is None:
+            return df
+        return (
+            df.style.set_table_styles(
+                [
+                    {
+                        "selector": "thead th",
+                        "props": [
+                            ("background-color", "#e5e7eb"),
+                            ("color", "#111827"),
+                            ("font-weight", "700"),
+                            ("border", "1px solid #d1d5db"),
+                        ],
+                    },
+                    {
+                        "selector": "tbody td",
+                        "props": [
+                            ("background-color", "#f3f4f6"),
+                            ("color", "#111827"),
+                            ("border", "1px solid #e5e7eb"),
+                        ],
+                    },
+                    {
+                        "selector": "tbody tr:nth-child(even) td",
+                        "props": [("background-color", "#eef2f7")],
+                    },
+                ]
+            )
+            .set_properties(**{"font-size": "0.9rem"})
+            .format(na_rep="-")
+        )
+
+    with t_sale:
+        if apts:
+            rows = []
+            for a in apts:
+                mom = a.get("mom_pct")
+                chg = a.get("change_pct")
+                tc = int(a.get("trade_count") or 0)
+                size = int(a.get("size") or 0)
+                density = round(tc / size, 4) if size > 0 else None
+                if mom is None:
+                    trend = "—"
+                else:
+                    mv = float(mom)
+                    trend = "상승" if mv >= 2 else ("하락" if mv <= -2 else "횡보")
+                rows.append(
+                    {
+                        "권역": (a.get("cluster_label") or "")[:30],
+                        "구": a.get("sigungu", ""),
+                        "단지": a.get("disp_name", ""),
+                        "MoM%": None if mom is None else round(float(mom), 2),
+                        "누적%": None if chg is None else round(float(chg), 2),
+                        "최신(억)": a.get("latest_price_eok"),
+                        "거래": tc,
+                        "거래밀도": density,
+                        "추세": trend,
+                        "비교": a.get("mom_label", ""),
+                    }
+                )
+            st.subheader("대장 단지 요약")
+            st.caption("추가 지표: 거래밀도(거래수/세대수), 추세(MoM 기준 상승·횡보·하락)")
+            if pd is not None:
+                st.dataframe(_apt_soft_gray_styler(pd.DataFrame(rows)), use_container_width=True, hide_index=True)
+            else:
+                st.json(rows[:30])
+
+        if rs:
+            st.subheader("지역별 요약 대시보드")
+            st.caption("지역 카드를 누르면 하단에 해당 지역 단지 차트가 표시됩니다.")
+            cards = sorted(
+                rs,
+                key=lambda r: int(r.get("trade_count") or 0),
+                reverse=True,
+            )
+            region_labels = [str(r.get("region") or "-") for r in cards]
+            if region_labels and "apt_region_selected" not in st.session_state:
+                st.session_state["apt_region_selected"] = region_labels[0]
+            selected_region = st.session_state.get("apt_region_selected")
+            cols_per_row = 4
+            for i in range(0, len(cards), cols_per_row):
+                row_items = cards[i : i + cols_per_row]
+                cols = st.columns(cols_per_row)
+                for col, r in zip(cols, row_items):
+                    region = str(r.get("region") or "-")
+                    trade_n = int(r.get("trade_count") or 0)
+                    avg_eok = r.get("avg_price_eok")
+                    districts = r.get("districts") or []
+                    gu_n = len(districts)
+                    top_gu = ""
+                    if districts:
+                        top_sorted = sorted(
+                            districts,
+                            key=lambda d: float(d.get("avg_price_eok") or 0),
+                            reverse=True,
+                        )
+                        top_gu = str((top_sorted[0] or {}).get("name") or "")
+                    with col:
+                        is_sel = region == selected_region
+                        st.markdown(
+                            f"""
+<div style="border:1px solid {'#93c5fd' if is_sel else '#dbe4f0'};border-radius:14px;padding:0.75rem 0.85rem;background:#ffffff;
+box-shadow:0 1px 3px rgba(15,23,42,0.08);min-height:125px;">
+  <div style="font-weight:800;color:#0f172a;font-size:1.05rem;">{region}</div>
+  <div style="margin-top:0.15rem;color:#1e293b;font-size:0.95rem;"><b>{trade_n:,}</b>건</div>
+  <div style="margin-top:0.2rem;color:#2563eb;font-size:0.9rem;">평균 <b>{avg_eok if avg_eok is not None else '-'}억</b></div>
+  <div style="margin-top:0.2rem;color:#475569;font-size:0.84rem;">주요 구 {gu_n}곳</div>
+  <div style="margin-top:0.1rem;color:#64748b;font-size:0.82rem;">TOP 구: {top_gu or '-'}</div>
+</div>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                        if st.button(
+                            f"{'선택됨' if is_sel else '이 지역 보기'} · {region}",
+                            key=f"apt_region_btn_{region}",
+                            use_container_width=True,
+                        ):
+                            st.session_state["apt_region_selected"] = region
+                            selected_region = region
+
+            with st.expander("표 형태로 보기", expanded=False):
+                flat = [
+                    {
+                        "지역": r.get("region"),
+                        "평균(억)": r.get("avg_price_eok"),
+                        "거래수": r.get("trade_count"),
+                        "주요구수": len(r.get("districts") or []),
+                    }
+                    for r in rs
+                ]
+                if pd is not None:
+                    st.dataframe(pd.DataFrame(flat), use_container_width=True, hide_index=True)
+                else:
+                    st.json(flat)
+
+    with t_jeonse:
+        api_key = (
+            (
+                os.environ.get("MOLIT_API_KEY")
+                or os.environ.get("DATA_GO_KR_SERVICE_KEY")
+                or os.environ.get("APT_SERVICE_KEY")
+                or ""
+            ).strip()
+        )
+        if not api_key:
+            st.info(
+                "전세 리포트 자동 생성은 서버에 "
+                "`MOLIT_API_KEY` / `DATA_GO_KR_SERVICE_KEY` / `APT_SERVICE_KEY` "
+                "중 하나가 있을 때 표시됩니다."
+            )
+        elif not apts:
+            st.info("APT 리포트 데이터가 없어 전세 리포트를 계산할 수 없습니다.")
+        else:
+            from datetime import date as _date  # noqa: PLC0415
+
+            deal_ymd = _date.today().strftime("%Y%m")
+            # 거래 많은 지역 우선 4개만 조회해 API 부하 최소화
+            top_sigungu = sorted(
+                {(str(a.get("region") or ""), str(a.get("sigungu") or "")) for a in apts if a.get("sigungu")},
+                key=lambda x: -sum(int(k.get("trade_count") or 0) for k in apts if str(k.get("region") or "") == x[0] and str(k.get("sigungu") or "") == x[1]),
+            )[:4]
+
+            summary_rows: list[dict[str, Any]] = []
+            top_rows: list[dict[str, Any]] = []
+            for region, sigungu in top_sigungu:
+                s_code = _SIDO_MAP.get(region)
+                if not s_code:
+                    continue
+                lawd_cd = (_SIGUNGU_MAP.get(s_code) or {}).get(sigungu)
+                if not lawd_cd:
+                    continue
+                rr = _fetch_molit_rent(lawd_cd=lawd_cd, deal_ymd=deal_ymd, api_key=api_key, num_rows=200)
+                jeonse = [r for r in rr if int(r.get("월세") or 0) == 0]
+                if not jeonse:
+                    continue
+                deps = [int(r.get("보증금") or 0) for r in jeonse if int(r.get("보증금") or 0) > 0]
+                if not deps:
+                    continue
+                deps_sorted = sorted(deps)
+                mid = len(deps_sorted) // 2
+                med = deps_sorted[mid]
+                avg = int(sum(deps_sorted) / len(deps_sorted))
+                summary_rows.append(
+                    {
+                        "지역": region,
+                        "구": sigungu,
+                        "전세건수": len(jeonse),
+                        "전세 중앙값(만)": med,
+                        "전세 평균(만)": avg,
+                    }
+                )
+                for r in jeonse[:5]:
+                    top_rows.append(
+                        {
+                            "지역": region,
+                            "구": sigungu,
+                            "단지": r.get("단지명", ""),
+                            "전세(만)": int(r.get("보증금") or 0),
+                            "전용면적": r.get("전용면적", ""),
+                            "거래일": f"{r.get('년','')}-{str(r.get('월','')).zfill(2)}-{str(r.get('일','')).zfill(2)}",
+                        }
+                    )
+            st.subheader("전세 지역 요약")
+            st.caption(f"기준월: {deal_ymd} · APT 리포트 상위 거래 지역 중심")
+            if summary_rows:
+                if pd is not None:
+                    st.dataframe(pd.DataFrame(summary_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.json(summary_rows)
+                st.subheader("전세 상위 단지")
+                if pd is not None:
+                    st.dataframe(pd.DataFrame(top_rows[:40]), use_container_width=True, hide_index=True)
+                else:
+                    st.json(top_rows[:40])
+            else:
+                st.info("조회 지역에서 전세 데이터를 찾지 못했습니다.")
+
+    if root is not None:
+        charts_dir = Path(root) / "charts"
+        if charts_dir.is_dir() and apts:
+            st.subheader("단지 추세 차트")
+            valid_pairs: list[tuple[dict[str, Any], Path]] = []
+            for a in apts:
+                ch = a.get("chart")
+                if not ch:
+                    continue
+                fp = charts_dir / ch
+                if fp.is_file():
+                    valid_pairs.append((a, fp))
+            selected_region = st.session_state.get("apt_region_selected")
+            selected_pairs = [
+                (a, fp) for (a, fp) in valid_pairs if str(a.get("region") or "") == str(selected_region or "")
+            ]
+            if selected_region and selected_pairs:
+                st.markdown(f"**선택 지역:** {selected_region}")
+                for a, fp in selected_pairs:
+                    st.caption(f"{a.get('disp_name', '')} · {a.get('sigungu', '')}")
+                    st.image(str(fp), use_container_width=True)
+                st.divider()
+            for i, (a, fp) in enumerate(valid_pairs):
+                if i < 6:
+                    st.caption(a.get("disp_name", ""))
+                    st.image(str(fp), use_container_width=True)
+            if len(valid_pairs) > 6:
+                with st.expander(f"차트 더 보기 ({len(valid_pairs) - 6}개)", expanded=False):
+                    for a, fp in valid_pairs[6:]:
+                        st.caption(a.get("disp_name", ""))
+                        st.image(str(fp), use_container_width=True)
+
+
 def _render_group_realty() -> None:
-    """🏘 부동산 그룹: 실거래·급등레이더·계산기·관심단지"""
-    t1, t2, t3, t4 = st.tabs([
+    """🏘 부동산 그룹: APT리포트·실거래·급등레이더·계산기·관심단지"""
+    t1, t2, t3, t4, t5 = st.tabs([
+        "🏢 APT 리포트",
         "🔥 실거래 현황", "📉 급등 레이더", "🧮 부동산 계산기", "🏘 관심 단지",
     ])
 
     _TAB_FUNCS = [
+        ("🏢 APT 리포트", _render_tab_apt_export_dashboard),
         ("🔥 실거래 현황", _render_tab_apt_market),
         ("📉 급등 레이더", _render_tab_volume_radar),
         ("🧮 부동산 계산기", _render_tab_real_estate_calc),
         ("🏘 관심 단지",   _render_tab_apt_watchlist),
     ]
-    for tab_ctx, (tab_name, fn) in zip([t1, t2, t3, t4], _TAB_FUNCS):
+    for tab_ctx, (tab_name, fn) in zip([t1, t2, t3, t4, t5], _TAB_FUNCS):
         with tab_ctx:
             try:
                 fn()
@@ -4971,21 +8975,52 @@ def _render_group_realty() -> None:
 
 
 def _render_group_life() -> None:
-    """🌤️ 생활 그룹: 날씨·뉴스"""
-    t1, t2 = st.tabs(["🌤️ 날씨", "📰 뉴스"])
+    """🌤️ 생활 그룹: 날씨·뉴스·컴퓨터 가이드"""
+    t1, t2, t3 = st.tabs(["🌤️ 날씨", "📰 뉴스", "💻 컴퓨터"])
     with t1:
         _render_tab_weather()
     with t2:
         _render_tab_news()
+    with t3:
+        _render_tab_life_pc()
+
+
+def _render_group_hobby() -> None:
+    """🎯 취미 그룹: 골프·캠핑·세차·수집 등"""
+    st.header("🎯 취미")
+    st.caption("골프·캠핑·세차·40대 남성층에 흔한 취미 축·피규어 등 **참고용** 정보입니다.")
+    h1, h2, h3, h4, h5 = st.tabs(
+        ["⛳ 골프", "🏕️ 캠핑", "🚿 세차·케어", "🧔 40대 남성 인기 취미", "🎨 피규어·수집"],
+    )
+    with h1:
+        _render_tab_golf()
+    with h2:
+        _render_tab_camping()
+    with h3:
+        _render_tab_car_wash()
+    with h4:
+        _render_tab_hobby_men40()
+    with h5:
+        _render_tab_figures()
 
 
 def _render_group_dev() -> None:
-    """🐙 개발 그룹: GitHub·만화·웹툰"""
-    t1, t2 = st.tabs(["🐙 GitHub 덴", "📖 만화·웹툰"])
-    with t1:
+    """🐙 개발 그룹: IT·테크 잡학 + GitHub"""
+    st.header("🐙 개발 · IT·테크")
+    st.caption("뉴스·도구·클라우드·보안·GitHub까지 **잡다한 IT** 참고용입니다. (만화·웹툰은 **기타** 탭으로 옮겼습니다.)")
+    d1, d2, d3, d4, d5 = st.tabs(
+        ["📡 IT 뉴스·동향", "🛠️ 도구·환경", "☁️ 클라우드·인프라", "🔐 보안·프라이버시", "🐙 GitHub 덴"],
+    )
+    with d1:
+        _render_tab_it_news_trends()
+    with d2:
+        _render_tab_it_tooling()
+    with d3:
+        _render_tab_it_cloud_infra()
+    with d4:
+        _render_tab_it_security_privacy()
+    with d5:
         _render_tab_github()
-    with t2:
-        _render_tab_comics()
 
 
 def _render_group_shop() -> None:
@@ -4997,27 +9032,131 @@ def _render_group_shop() -> None:
         _render_tab_pc_compare()
 
 
+def _render_group_auto() -> None:
+    """🚗 자동차: 인기 차종 평가·셀토스·옵션·정비·EV·타이어"""
+    st.header("🚗 자동차 · 신차 옵션 가이드")
+    st.caption(
+        "커뮤니티·장기 사용 후기에서 자주 보이는 **평가 경향**을 요약한 참고용입니다. "
+        "출고가·트림명·프로모션은 **기아·대리점·공식 카탈로그**를 기준으로 하세요."
+    )
+    t1, t2, t3, t4, t5 = st.tabs(
+        [
+            "🔥 인기 차종 평가",
+            "🚙 기아 셀토스",
+            "⚙️ 옵션 추천",
+            "🛠️ 정비·전기차·타이어",
+            "🔗 리뷰·비교 사이트",
+        ]
+    )
+    with t1:
+        _car_model_labels = [row.get("모델", "") for row in CAR_POPULAR_MODEL_SUMMARY if row.get("모델")]
+        _pick = st.selectbox(
+            "차종을 선택하면 **특징·추천**을 자세히 볼 수 있습니다.",
+            options=_car_model_labels,
+            index=0,
+            key="auto_popular_model_pick",
+        )
+        st.markdown("##### 요약 표")
+        if pd is not None:
+            st.dataframe(pd.DataFrame(CAR_POPULAR_MODEL_SUMMARY), use_container_width=True, hide_index=True)
+        else:
+            for row in CAR_POPULAR_MODEL_SUMMARY:
+                with _st_try_border_container():
+                    st.markdown(f"**{row.get('모델', '')}** · {row.get('세그먼트', '')}")
+                    st.markdown(f"- 잘 받는 평: {row.get('만족 포인트', '')}")
+                    st.markdown(f"- 흔한 지적: {row.get('흔한 지적', '')}")
+                    st.markdown(f"- 옵션: {row.get('옵션 팁', '')}")
+        _detail = CAR_MODEL_DETAILS.get(_pick or "")
+        if _detail:
+            st.divider()
+            st.markdown(f"##### **{_pick}** — 상세")
+            st.markdown("**특징**")
+            st.markdown(_detail.get("특징", "—"))
+            st.markdown("**이런 분께 추천·구매 시 참고**")
+            st.markdown(_detail.get("추천", "—"))
+        else:
+            st.caption("이 차종에 대한 상세 문구가 없습니다. `CAR_MODEL_DETAILS`에 키를 추가하세요.")
+        st.info(
+            "특정 연식·엔진에서는 평가가 갈릴 수 있습니다. **시승·견적 2~3곳**이 가장 빠른 판단 기준입니다.",
+            icon="💡",
+        )
+    with t2:
+        st.markdown("**기아 셀토스**를 염두에 둔 경우에만 읽어도 되는 요약입니다.")
+        st.markdown(CAR_SELTOS_FOCUS_MARKDOWN)
+        with st.expander("셀토스 구매 전 짧은 체크리스트", expanded=True):
+            checks = (
+                "뒷좌석 무릎·머리 공간, 트렁크에 유모차·캐리어 적재 테스트",
+                "야간 주차: 어댑티드/일반 헤드램프, 후진·주차 시 UI 가독성",
+                "주유(또는 충전) 위치·캡 개폐, 연비·주행 가능 거리 체감",
+                "보험료 견적(같은 운전자 조건으로 타 차종과 비교)",
+                "할부 조건(금리·중도상환·캐시백) 숫자로 정리",
+            )
+            for i, c in enumerate(checks):
+                st.checkbox(c, key=f"seltos_chk_{i}")
+        st.caption("체크리스트는 브라우저 세션에만 저장되며 서버로 전송되지 않습니다.")
+    with t3:
+        if pd is not None:
+            st.dataframe(pd.DataFrame(CAR_OPTION_GUIDE_ROWS), use_container_width=True, hide_index=True)
+        else:
+            for row in CAR_OPTION_GUIDE_ROWS:
+                st.markdown(f"**{row['상황']}**")
+                st.caption(row["추천 우선순위"])
+                st.caption(f"덜 우선: {row['덜 우선']}")
+        st.markdown(
+            "##### 패키지 고를 때 한 줄 규칙\n"
+            "- **안전·운전 보조**는 되돌리기 어렵고, 매각·타인 탑승 시에도 이득인 경우가 많습니다.\n"
+            "- **휠·외관**은 취향이지만 타이어 비용·편의성에 영향합니다.\n"
+            "- **내장 색**은 중고 매물에서 수요 차이가 날 수 있습니다."
+        )
+    with t4:
+        st.markdown("##### 시기·주기별 정비 체크(참고)")
+        st.caption(
+            "차종·주행 환경·매뉴얼에 따라 간격이 다릅니다. 아래는 **일반적인 점검 흐름** — 최종은 차량 매뉴얼·제조사 권장 주기를 따르세요."
+        )
+        if pd is not None:
+            st.dataframe(pd.DataFrame(CAR_MAINTENANCE_BY_TIMING), use_container_width=True, hide_index=True)
+        else:
+            for row in CAR_MAINTENANCE_BY_TIMING:
+                st.markdown(f"**{row.get('시기·주기', '')}**")
+                st.caption(row.get("점검·작업", ""))
+                st.caption(row.get("메모", ""))
+        st.divider()
+        st.markdown("##### 전기차(EV)")
+        st.markdown(CAR_EV_GUIDE_MARKDOWN)
+        st.divider()
+        st.markdown("##### 타이어·교체 꿀팁(코스트코 등)")
+        st.markdown(CAR_TIRE_TIPS_MARKDOWN)
+    with t5:
+        for p in CAR_REVIEW_PORTALS:
+            st.markdown(f"- [{p['t']}]({p['u']}) — {p['d']}")
+
+
 def _render_group_misc() -> None:
-    """✈️ 여행·챗봇 그룹"""
-    t1, t2 = st.tabs(["🗺️ 여행 스케치", "💬 AI 에이전트"])
+    """✈️ 여행·챗봇·만화 그룹"""
+    t1, t2, t3 = st.tabs(["🗺️ 여행 스케치", "💬 AI 에이전트", "📖 만화·웹툰"])
     with t1:
         _render_tab_travel_mock()
     with t2:
         _render_tab_agent()
+    with t3:
+        _render_tab_comics()
 
 
 _HOME_GROUP_DISPATCH: dict[str, Any] = {
-    "market": _render_group_market,
+    # 홈 포털에서 시장만 단독 렌더 시 사이드바 없음 → 첫 항목(오늘의 픽) 고정
+    "market": lambda: _render_group_market(_MARKET_NAV_OPTIONS[0]),
     "realty": _render_group_realty,
     "life":   _render_group_life,
+    "hobby":  _render_group_hobby,
     "dev":    _render_group_dev,
     "shop":   _render_group_shop,
+    "auto":   _render_group_auto,
     "misc":   _render_group_misc,
 }
 
 
 def _sidebar_travel_country_picker(nav_selected: str) -> None:
-    """홈 메뉴일 때 사이드바에 여행 목업 선택 상태 표시(본 선택은 «여행 스케치» 탭 상단)."""
+    """홈 메뉴일 때 사이드바에 여행 선택 상태 표시(본 선택은 «여행 스케치» 탭 상단)."""
     if nav_selected != "홈":
         return
     countries = list(TRAVEL_MOCK_BY_COUNTRY.keys())
@@ -5026,7 +9165,7 @@ def _sidebar_travel_country_picker(nav_selected: str) -> None:
         cur = countries[0]
     with st.sidebar:
         st.divider()
-        st.markdown("##### 🗺️ 여행 스케치 (목업)")
+        st.markdown("##### 🗺️ 여행 스케치")
         st.caption("국가는 메인 화면 **«여행 스케치» 탭** 상단에서 고릅니다.")
         st.info(f"현재 선택: **{cur}**")
 
@@ -5039,7 +9178,12 @@ def _sidebar_nav_select() -> str:
             sel = option_menu(
                 menu_title="메뉴",
                 options=opts,
-                icons=["house", "graph-up-arrow", "bar-chart-line", "journal-text", "book", "clipboard-check"],
+                icons=[
+                    "house", "graph-up-arrow", "pin-map", "chat-quote",
+                    "fire", "journal-text", "book", "globe2",
+                    "lightbulb", "egg-fried", "shop", "shield-check",
+                    "cpu", "hammer", "flower1", "gavel", "heart-pulse", "activity",
+                ],
                 menu_icon="compass",
                 default_index=0,
                 styles=_OPTION_MENU_STYLES,
@@ -5055,6 +9199,91 @@ def _sidebar_nav_select() -> str:
         )
 
 
+def _nav_slug_from_query() -> str:
+    """URL 쿼리 `p` 한 값(소문자 슬러그). 미지원·오류 시 빈 문자열."""
+    if not hasattr(st, "query_params"):
+        return ""
+    try:
+        v = st.query_params.get("p")
+    except Exception:
+        return ""
+    if v is None:
+        return ""
+    if isinstance(v, (list, tuple)):
+        return str(v[0] if v else "").strip().lower()
+    return str(v).strip().lower()
+
+
+def _sync_topbar_nav_from_query_params() -> None:
+    """`?p=pick|kospi|...` 가 있으면 상단 메뉴 세션과 맞춤. 없으면 메인(오늘의픽)으로 간주."""
+    slug = _nav_slug_from_query()
+    if slug in _NAV_QUERY_SLUG_TO_SHORT:
+        st.session_state["app_nav_short"] = _NAV_QUERY_SLUG_TO_SHORT[slug]
+        st.session_state["page"] = slug
+    elif not slug:
+        st.session_state["app_nav_short"] = _TOPBAR_NAV_SHORT[0]
+        st.session_state["page"] = "pick"
+
+
+def _render_topbar_nav_select() -> str:
+    """실까(silgga.com) 형태: 상단 한 줄에서 브랜드는 왼쪽, 메뉴(바)는 오른쪽에 모음."""
+    shorts = _TOPBAR_NAV_SHORT
+    if hasattr(st, "query_params"):
+        _sync_topbar_nav_from_query_params()
+    st.session_state.setdefault("app_nav_short", shorts[0])
+    cur = str(st.session_state.get("app_nav_short") or shorts[0])
+    if cur not in _TOPBAR_SHORT_TO_PAGE:
+        cur = shorts[0]
+        st.session_state["app_nav_short"] = cur
+    with _st_try_border_container():
+        # 가중치: 중간 여백(c_sp)으로 메뉴 버튼을 화면 오른쪽으로 밀어 붙임
+        c_brand, c_sp, c1, c2, c3, c4, c5, c6, c7 = st.columns(
+            [2.0, 3.2, 1, 1, 1, 1, 1, 1, 1],
+        )
+        with c_brand:
+            st.markdown(
+                """
+<p style="margin:0;font-size:1.22rem;font-weight:800;letter-spacing:-0.04em;color:#0f172a;line-height:1.15;">
+오늘의<span style="color:#2563eb;">픽</span>
+</p>
+<p style="margin:0.12rem 0 0;font-size:0.74rem;color:#64748b;line-height:1.25;">
+코스피·코스닥·ETF Stage2 · 관심주식
+</p>
+""",
+                unsafe_allow_html=True,
+            )
+        with c_sp:
+            st.empty()
+        for i, short in enumerate(shorts):
+            col = (c1, c2, c3, c4, c5, c6, c7)[i]
+            with col:
+                btn_type = "primary" if cur == short else "secondary"
+                if st.button(
+                    short,
+                    key=f"app_topnav_{short}",
+                    use_container_width=True,
+                    type=btn_type,
+                ):
+                    st.session_state["app_nav_short"] = short
+                    st.session_state["page"] = _TOPBAR_SHORT_TO_SLUG.get(short, "pick")
+                    if hasattr(st, "query_params"):
+                        try:
+                            st.query_params["p"] = _TOPBAR_SHORT_TO_SLUG.get(short, "pick")
+                        except Exception:
+                            pass
+                    st.rerun()
+        u = st.session_state.get("wl_user")
+        if u:
+            cap_txt = f"<b>{html.escape(str(u))}</b> 로그인 중"
+        else:
+            cap_txt = "비로그인 — 관심 저장은 로그인 후"
+        st.markdown(
+            f'<p style="text-align:right;margin:0.15rem 0 0;font-size:0.78rem;color:#64748b;">{cap_txt}</p>',
+            unsafe_allow_html=True,
+        )
+    return _TOPBAR_SHORT_TO_PAGE[str(st.session_state.get("app_nav_short") or shorts[0])]
+
+
 @contextmanager
 def _portal_page_card() -> Iterator[None]:
     """메인 영역 카드 셸 — `st.container(border=True)` + main() 내 포털 카드 CSS."""
@@ -5064,18 +9293,873 @@ def _portal_page_card() -> Iterator[None]:
         yield
 
 
+def _render_page_education_regions() -> None:
+    """🎓 학군·교육 지역 — edu_data/regions.json → results_web.json"""
+    import threading
+    import sys
+    from pathlib import Path
+
+    st.header("🎓 학군·교육 지역")
+    st.caption(
+        "지역별 **샘플 지표**는 참고용입니다. 데이터는 **edu_data/regions.json**에서 편집한 뒤 내보내기 하세요."
+    )
+    HERE = Path(__file__).resolve().parent
+    DATA_DIR = HERE / "edu_data"
+    RESULTS_JSON = DATA_DIR / "results_web.json"
+    DATA_DIR.mkdir(exist_ok=True)
+
+    metric_label_map = {
+        "capital_4yr_share_pct": "수도권 4년제 진학률(%)",
+        "seoul_4yr_share_pct": "서울권 4년제 진학률(%)",
+        "private_edu_monthly_10kkrw": "사교육비(월, 만원)",
+        "living_cost_index_natl100": "생활비 지수(전국=100)",
+        "school_satisfaction_5": "학교 만족도(5점)",
+        "school_safety_5": "학교 안전 체감(5점)",
+        "academy_access_5": "학원 접근성(5점)",
+        "commute_convenience_5": "통학 편의성(5점)",
+        "year": "기준연도",
+    }
+
+    try:
+        if str(HERE) not in sys.path:
+            sys.path.insert(0, str(HERE))
+        from education_export_core import run_education_export  # noqa: PLC0415
+
+        _edu_ok = True
+    except Exception as e:
+        st.error(f"education_export_core 임포트 실패: {e}")
+        _edu_ok = False
+        run_education_export = None  # type: ignore[misc, assignment]
+
+    scan_key, err_key = "edu_data_scanning", "edu_data_error"
+    if scan_key not in st.session_state:
+        st.session_state[scan_key] = False
+    if err_key not in st.session_state:
+        st.session_state[err_key] = None
+
+    c1, c2 = st.columns([1, 4])
+    with c1:
+        go = st.button(
+            "📤 내보내기",
+            key="btn_edu_export",
+            disabled=st.session_state[scan_key] or not _edu_ok,
+            use_container_width=True,
+        )
+    with c2:
+        if st.session_state[scan_key]:
+            st.info("처리 중…", icon="⏳")
+        elif RESULTS_JSON.is_file():
+            ts = _file_mtime_str_kst(RESULTS_JSON, "%Y-%m-%d %H:%M")
+            st.success(f"마지막 내보내기(KST): {ts}", icon="✅")
+
+    if go and _edu_ok and run_education_export is not None:
+        st.session_state[scan_key] = True
+        st.session_state[err_key] = None
+
+        def _run():
+            try:
+                run_education_export(str(DATA_DIR))
+            except Exception as ex:
+                st.session_state[err_key] = str(ex)
+            finally:
+                st.session_state[scan_key] = False
+
+        threading.Thread(target=_run, daemon=True).start()
+        st.rerun()
+
+    if st.session_state.get(err_key):
+        st.error(st.session_state[err_key])
+
+    payload: dict[str, Any] | None = None
+    if RESULTS_JSON.is_file():
+        try:
+            with open(RESULTS_JSON, encoding="utf-8") as f:
+                payload = json.load(f)
+        except Exception as e:
+            st.warning(f"결과 로드 실패: {e}")
+
+    regions = (payload or {}).get("regions") or []
+    if not regions:
+        rf = DATA_DIR / "regions.json"
+        if rf.is_file():
+            try:
+                with open(rf, encoding="utf-8") as f:
+                    regions = json.load(f)
+            except Exception:
+                regions = []
+    if not regions:
+        st.info("`edu_data/regions.json`이 비었거나 내보내기를 아직 하지 않았습니다.")
+        return
+
+    st.caption(f"지역 **{len(regions)}**개 · {(payload or {}).get('last_export_time', '')}")
+
+    for r in regions:
+        name = r.get("name", r.get("id", "?"))
+        brief = r.get("parent_brief") or ""
+        cluster = r.get("cluster", "")
+        sig = f"{r.get('sido', '')} {r.get('sigungu', '')}".strip()
+        metrics = r.get("metrics") or {}
+        with _st_try_border_container():
+            st.markdown(f"#### {name}")
+            if cluster:
+                st.caption(cluster)
+            if sig:
+                st.caption(sig)
+            if brief:
+                st.markdown(brief)
+            if metrics:
+                mcols = st.columns(min(4, max(1, len(metrics))))
+                for i, (k, v) in enumerate(metrics.items()):
+                    if k == "year":
+                        continue
+                    with mcols[i % len(mcols)]:
+                        st.metric(metric_label_map.get(str(k), str(k)), str(v))
+
+
+def _render_page_opic() -> None:
+    """🗣 OPIC 학습 자료 뷰어 — opic_data/*.json"""
+    from pathlib import Path
+
+    st.header("🗣 OPIC 학습 허브")
+    st.caption(
+        "로컬 `opic_data/` JSON을 읽어 보여줍니다. "
+        "면접 답안 참고용이며, 실제 시험 답변은 본인 경험 중심으로 바꿔 연습하세요."
+    )
+
+    here = Path(__file__).resolve().parent
+    data_dir = here / "opic_data"
+
+    def _load_json(name: str) -> dict[str, Any]:
+        p = data_dir / name
+        if not p.is_file():
+            return {}
+        try:
+            with open(p, encoding="utf-8") as f:
+                d = json.load(f)
+            return d if isinstance(d, dict) else {}
+        except (OSError, json.JSONDecodeError, ValueError):
+            return {}
+
+    materials = _load_json("materials.json")
+    travel = _load_json("travel.json")
+    library = _load_json("library.json")
+    news = _load_json("it-news.json")
+
+    t1, t2, t3, t4, t5 = st.tabs(
+        ["📘 스크립트", "🧳 여행 토픽", "📚 문장·독서", "📖 추천도서", "📰 IT 뉴스"]
+    )
+
+    with t1:
+        meta = materials.get("meta") or {}
+        if meta:
+            st.caption(
+                f"레벨 목표: {meta.get('levelGoal', '-')} · 생성: {str(meta.get('generatedAt') or '')[:16]}"
+            )
+            if meta.get("blurb"):
+                st.info(str(meta.get("blurb")))
+        files = materials.get("files") or []
+        if not files:
+            st.info("`opic_data/materials.json` 자료가 없습니다.")
+        else:
+            rows = []
+            for f in files:
+                paras = f.get("paragraphs") or []
+                rows.append(
+                    {
+                        "제목": f.get("title", ""),
+                        "원본": f.get("sourceFile", ""),
+                        "문장수": len(paras),
+                    }
+                )
+            if pd is not None:
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            else:
+                st.json(rows[:50])
+            with st.expander("스크립트 미리보기", expanded=False):
+                sel_idx = st.number_input(
+                    "파일 번호(1~N)",
+                    min_value=1,
+                    max_value=max(1, len(files)),
+                    value=1,
+                    step=1,
+                    key="opic_preview_idx",
+                )
+                picked = files[int(sel_idx) - 1]
+                st.markdown(f"**{picked.get('title', '')}**")
+                paras = picked.get("paragraphs") or []
+                for line in paras[:30]:
+                    st.write(str(line))
+                if len(paras) > 30:
+                    st.caption(f"... 이하 {len(paras) - 30}줄 생략")
+
+    with t2:
+        if not travel:
+            st.info("`opic_data/travel.json` 자료가 없습니다.")
+        else:
+            st.markdown(f"**{travel.get('title', '여행 토픽')}**")
+            if travel.get("intro"):
+                st.caption(str(travel.get("intro")))
+            dest = travel.get("destinations") or []
+            rows = []
+            for d in dest:
+                rows.append(
+                    {
+                        "순위": d.get("rank"),
+                        "국가/도시": d.get("name", ""),
+                        "요약": str(d.get("summary", ""))[:90],
+                        "권장시기": str((d.get("bestTime") or {}).get("recommended", ""))[:32],
+                    }
+                )
+            if rows:
+                if pd is not None:
+                    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                else:
+                    st.json(rows)
+
+    with t3:
+        if not library:
+            st.info("`opic_data/library.json` 자료가 없습니다.")
+        else:
+            st.markdown(f"**{library.get('title', '문장·독서')}**")
+            if library.get("intro"):
+                st.caption(str(library.get("intro")))
+            quotes = library.get("quotes") or []
+            if quotes:
+                st.subheader("좋은 문장")
+                for q in quotes[:8]:
+                    st.markdown(f"- {q.get('text', '')}  \n  — *{q.get('source', '')}*")
+            books = library.get("books") or []
+            if books:
+                st.subheader("책 메모")
+                rows_b = [{"제목": b.get("title", ""), "저자": b.get("author", ""), "메모": b.get("note", "")} for b in books]
+                if pd is not None:
+                    st.dataframe(pd.DataFrame(rows_b), use_container_width=True, hide_index=True)
+                else:
+                    st.json(rows_b)
+
+    with t4:
+        kb = library.get("kidsBooks") or {}
+        items_raw = kb.get("items") if isinstance(kb.get("items"), list) else []
+        if not items_raw:
+            st.info(
+                "`opic_data/library.json` 의 **kidsBooks.items** 에 도서를 넣으면 "
+                "5·7세 추천 랭크가 표시됩니다. (지금은 데이터가 비어 있을 수 있습니다.)"
+            )
+        else:
+            st.markdown(f"**{kb.get('title', '5·7세 추천 도서')}**")
+            if kb.get("intro"):
+                st.caption(str(kb.get("intro")))
+            filt = st.radio(
+                "연령 필터",
+                ["전체 순위", "5세 중심", "7세 중심", "5세·7세 공통만"],
+                horizontal=True,
+                key="opic_kids_book_age_filter",
+            )
+
+            def _norm_ages(it: dict[str, Any]) -> list[str]:
+                a = it.get("ages") or it.get("age")
+                if isinstance(a, str):
+                    return [x.strip() for x in a.replace(",", " ").split() if x.strip()]
+                if isinstance(a, list):
+                    return [str(x).strip() for x in a if str(x).strip()]
+                return []
+
+            items = sorted(
+                [it for it in items_raw if isinstance(it, dict)],
+                key=lambda x: int(x.get("rank") or 9999),
+            )
+            if filt == "5세 중심":
+                items = [it for it in items if "5" in _norm_ages(it)]
+            elif filt == "7세 중심":
+                items = [it for it in items if "7" in _norm_ages(it)]
+            elif filt == "5세·7세 공통만":
+                items = [
+                    it
+                    for it in items
+                    if "5" in _norm_ages(it) and "7" in _norm_ages(it)
+                ]
+
+            rows_k = []
+            for it in items:
+                ages = _norm_ages(it)
+                if ages:
+                    age_s = (
+                        "·".join(
+                            sorted(ages, key=lambda s: int(s) if str(s).isdigit() else 99)
+                        )
+                        + "세"
+                    )
+                else:
+                    age_s = "—"
+                rows_k.append(
+                    {
+                        "순위": int(it.get("rank") or 0),
+                        "연령": age_s,
+                        "제목": it.get("title", ""),
+                        "저자": it.get("author", ""),
+                        "분야": it.get("category", ""),
+                        "추천 이유": it.get("reason", ""),
+                    }
+                )
+            if rows_k:
+                if pd is not None:
+                    st.dataframe(pd.DataFrame(rows_k), use_container_width=True, hide_index=True)
+                else:
+                    st.json(rows_k)
+                st.caption(
+                    "정렬: **rank** 숫자 오름차순(1이 가장 위). "
+                    "내용 편집은 `opic_data/library.json` → **kidsBooks** 입니다."
+                )
+            else:
+                st.info("선택한 필터에 해당하는 도서가 없습니다.")
+
+    with t5:
+        if not news:
+            st.info("`opic_data/it-news.json` 자료가 없습니다.")
+        else:
+            st.caption(f"수집시각: {str(news.get('fetchedAt') or '')[:16]}")
+            items = news.get("items") or []
+            for it in items[:30]:
+                ttl = str(it.get("title", ""))
+                src = str(it.get("source", ""))
+                link = str(it.get("link", "") or "")
+                st.markdown(f"- **{ttl}** · {src}")
+                if link:
+                    st.markdown(f"  - [원문 열기]({link})")
+
+
+def _render_page_local_surge() -> None:
+    """테마주·Stage2 통합 유니버스 (tema surge core)"""
+    st.error(
+        "참고용 스캐너입니다. 이 화면만 보고 매수하지 마세요. "
+        "뉴스/공시/실적/유동성/손절 계획을 반드시 별도로 확인해야 합니다."
+    )
+    # 메인에 스캐너 탭만 두면 CSS상 '최상위 탭' 스타일(작은 셀·글자)이 적용됨.
+    # 시장 > 코스피처럼 한 단계 감싸 .stTabs .stTabs 규칙을 타게 해 동일한 탭/터치 크기로 맞춤.
+    _t_scan, = st.tabs(["스캔 결과"])
+    with _t_scan:
+        _render_scanner_page(
+            title="테마주 (Theme Stocks) Stage2 스캔",
+            data_dir_name="tema_stage2_data",
+            module_name="tema_stage2_export_core",
+            candidates_module="candidates_data",
+            index_label="—",
+            show_index=False,
+            run_export_name="run_analysis_export",
+        )
+
+
+def _market_label_from_ticker(ticker: str | None) -> str:
+    t = str(ticker or "").upper()
+    if t.endswith(".KS"):
+        return "코스피"
+    if t.endswith(".KQ"):
+        return "코스닥"
+    return "기타"
+
+
+def _infer_theme_label(name: str | None, sector: str | None) -> str:
+    blob = f"{name or ''} {sector or ''}".lower()
+    theme_rules: list[tuple[str, tuple[str, ...]]] = [
+        ("AI·로봇", ("ai", "인공지능", "로봇", "자동화", "휴머노이드")),
+        ("반도체", ("반도체", "semicon", "칩", "파운드리", "메모리")),
+        ("2차전지", ("2차전지", "배터리", "리튬", "양극", "음극", "전해질")),
+        ("전력·원전", ("전력", "변압", "송전", "배전", "원전", "원자력")),
+        ("바이오·헬스케어", ("바이오", "제약", "백신", "의료", "헬스", "진단")),
+        ("자동차·부품", ("자동차", "차량", "ev", "전기차", "부품", "모빌리티")),
+        ("조선·해운", ("조선", "해운", "선박", "항공", "물류")),
+        ("건설·인프라", ("건설", "시멘트", "인프라", "철강", "플랜트")),
+        ("금융", ("은행", "증권", "보험", "금융", "카드")),
+        ("소비재", ("화장품", "식품", "유통", "면세", "패션", "의류")),
+    ]
+    for label, keys in theme_rules:
+        if any(k in blob for k in keys):
+            return label
+    return "기타"
+
+
+def _local_surge_labels(m: dict[str, Any]) -> tuple[str, str, str]:
+    market = _market_label_from_ticker(m.get("ticker"))
+    raw_sector = str(m.get("sector") or "").strip()
+    ticker = str(m.get("ticker") or "").strip()
+    name = str(m.get("name") or "").strip()
+    extra = ""
+    try:
+        from candidates_data import CANDIDATES
+
+        ci = CANDIDATES.get(ticker)
+        if isinstance(ci, (list, tuple)) and len(ci) > 1:
+            extra = str(ci[1] or "")
+    except Exception:
+        pass
+    try:
+        from surge_sector_resolve import resolve_surge_sector
+
+        if raw_sector and raw_sector not in ("코스피", "코스닥", "KOSPI", "KOSDAQ"):
+            sector = resolve_surge_sector(ticker=ticker, name=name, payload_sector=raw_sector, extra_hint=extra)
+        else:
+            sector = resolve_surge_sector(ticker=ticker, name=name, payload_sector="미분류", extra_hint=extra)
+    except Exception:
+        if raw_sector and raw_sector not in ("코스피", "코스닥", "KOSPI", "KOSDAQ"):
+            sector = raw_sector
+        else:
+            sector = _infer_theme_label(m.get("name"), "")
+    theme = _infer_theme_label(m.get("name"), sector)
+    return market, sector, theme
+
+
+def _sector_label_for_match(m: dict[str, Any], is_surge_scanner: bool) -> str:
+    if is_surge_scanner:
+        return _local_surge_labels(m)[1]
+    sec = str(m.get("sector") or "").strip()
+    return sec or "미분류"
+
+
+def _kospi_sector_etf_pair(sec: str) -> tuple[str, str]:
+    """
+    코스피 스캐너 섹터 라벨(예: 반도체/AI)에 대응하는 **참고용** 국내 상장 ETF 심볼.
+    1:1 구성 일치는 아니며, 야후 파이낸스 등에서 흐름만 비교할 때 쓰기 위한 힌트입니다.
+    """
+    s = (sec or "").strip()
+    if not s:
+        return "", ""
+    # (키워드가 섹터 문자열에 포함되면 매칭) — kospi_candidates.py 의 두 번째 토큰과 맞춤
+    rules: tuple[tuple[tuple[str, ...], str, str], ...] = (
+        (("반도체", "AI"), "091160.KS", "KODEX 반도체"),
+        (("모빌리티", "방산"), "091180.KS", "KODEX 자동차"),
+        (("전력", "인프라"), "139230.KS", "TIGER 200 산업재"),
+        (("금융", "밸류업"), "102970.KS", "KODEX 증권"),
+        (("소비재", "바이오"), "244580.KS", "TIGER 바이오TOP10"),
+    )
+    for keys, tkr, lbl in rules:
+        if any(k in s for k in keys):
+            return tkr, lbl
+    if s == "미분류":
+        return "069500.KS", "KODEX 200"
+    return "069500.KS", "KODEX 200"
+
+
+def _sector_table_from_top_candidates(
+    top_table: list[dict[str, Any]],
+    *,
+    is_surge_scanner: bool,
+    universe_sector_counts: dict[str, int] | None = None,
+    top_n: int = 30,
+) -> list[dict[str, Any]]:
+    ranked = sorted(
+        top_table,
+        key=lambda m: (
+            int(m.get("rank") or 999999),
+            -float(m.get("score") or 0),
+        ),
+    )
+    top_ranked = ranked[:top_n]
+    agg: dict[str, dict[str, Any]] = {}
+    for m in top_table:
+        sec = _sector_label_for_match(m, is_surge_scanner)
+        row = agg.setdefault(
+            sec,
+            {"sector": sec, "universe_n": 0, "top30_n": 0, "score_sum": 0.0, "max_score": 0.0, "match_n": 0},
+        )
+        score = float(m.get("score") or 0.0)
+        row["match_n"] += 1
+        row["score_sum"] += score
+        row["max_score"] = max(float(row["max_score"]), score)
+    for m in top_ranked:
+        sec = _sector_label_for_match(m, is_surge_scanner)
+        if sec in agg:
+            agg[sec]["top30_n"] += 1
+        else:
+            agg[sec] = {
+                "sector": sec,
+                "universe_n": 0,
+                "top30_n": 1,
+                "score_sum": 0.0,
+                "max_score": 0.0,
+                "match_n": 0,
+            }
+
+    # 분모: 후보 유니버스 섹터별 종목수 (누락 섹터도 표시)
+    universe_sector_counts = universe_sector_counts or {}
+    for sec, n in universe_sector_counts.items():
+        row = agg.setdefault(
+            sec,
+            {"sector": sec, "universe_n": 0, "top30_n": 0, "score_sum": 0.0, "max_score": 0.0, "match_n": 0},
+        )
+        row["universe_n"] = int(n)
+
+    rows = list(agg.values())
+    for r in rows:
+        n = int(r.get("universe_n") or 0)
+        top_cnt = int(r["top30_n"])
+        match_n = int(r.get("match_n") or 0)
+        avg = (float(r["score_sum"]) / match_n) if match_n > 0 else 0.0
+        # 요청: 소수점 아래 버림
+        pct = int((100.0 * top_cnt / n)) if n > 0 else 0
+        r["avg_score"] = round(avg, 2)
+        r["top30_pct_int"] = pct
+    rows.sort(key=lambda r: (-float(r["avg_score"]), -int(r["top30_n"]), -int(r["universe_n"]), str(r["sector"])))
+    for i, r in enumerate(rows, 1):
+        r["rank"] = i
+    return rows
+
+
+def _candidate_universe_sector_counts(
+    *,
+    module_name: str,
+    candidates_module: str,
+    is_surge_scanner: bool,
+) -> dict[str, int]:
+    out: dict[str, int] = {}
+    try:
+        cm = __import__(candidates_module)
+        cand = getattr(cm, "CANDIDATES", {}) or {}
+        if not isinstance(cand, dict):
+            return out
+        if is_surge_scanner:
+            em = __import__(module_name)
+            get_sector = getattr(em, "get_sector", None)
+            if get_sector is None:
+                return out
+            for t in cand.keys():
+                try:
+                    sec = str(get_sector(t) or "").strip() or "미분류"
+                except Exception:
+                    sec = "미분류"
+                out[sec] = out.get(sec, 0) + 1
+            return out
+        # 코스피/코스닥 후보: [종목명, 섹터]
+        for info in cand.values():
+            sec = "미분류"
+            if isinstance(info, (list, tuple)) and len(info) > 1:
+                sec = str(info[1] or "").strip() or "미분류"
+            out[sec] = out.get(sec, 0) + 1
+    except Exception:
+        return {}
+    return out
+
+
+def _diff_history_event_key(it: dict[str, Any]) -> tuple[Any, ...]:
+    """신규·탈락 행을 정규화해 diff 지문에 쓰는 키(티커·표시용 필드)."""
+
+    sc = it.get("score")
+    try:
+        sc_n = round(float(sc), 4) if sc is not None else None
+    except (TypeError, ValueError):
+        sc_n = None
+    return (
+        str(it.get("ticker") or ""),
+        str(it.get("name") or ""),
+        str(it.get("sector") or ""),
+        sc_n,
+        str(it.get("entry") or ""),
+    )
+
+
+def _diff_history_fingerprint(added: list[dict[str, Any]], removed: list[dict[str, Any]]) -> str:
+    """동일 스냅샷이 반복 저장되는 것을 막기 위한 내용 기반 지문."""
+
+    a = sorted(_diff_history_event_key(x) for x in added)
+    r = sorted(_diff_history_event_key(x) for x in removed)
+    blob = json.dumps({"added": a, "removed": r}, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _diff_history_last_fingerprint(conn: Any, scanner: str) -> str | None:
+    """해당 스캐너의 가장 최근 run에 기록된 이벤트 세트 지문."""
+
+    cur = conn.cursor()
+    cur.execute("SELECT id FROM runs WHERE scanner = ? ORDER BY id DESC LIMIT 1", (scanner,))
+    row = cur.fetchone()
+    if not row:
+        return None
+    run_id = int(row[0])
+    cur.execute(
+        """
+        SELECT event_type, ticker, name, sector, score, entry
+        FROM events
+        WHERE run_id = ?
+        ORDER BY event_type, ticker
+        """,
+        (run_id,),
+    )
+    added: list[dict[str, Any]] = []
+    removed: list[dict[str, Any]] = []
+    for et, t, n, s, sc, e in cur.fetchall():
+        d = {"ticker": t, "name": n, "sector": s, "score": sc, "entry": e}
+        if et == "added":
+            added.append(d)
+        elif et == "removed":
+            removed.append(d)
+    return _diff_history_fingerprint(added, removed)
+
+
+def _record_diff_history_sqlite(
+    *,
+    data_dir: Path,
+    scanner: str,
+    analysis_time: str,
+    baseline_date: str,
+    added: list[dict[str, Any]],
+    removed: list[dict[str, Any]],
+) -> Path:
+    import sqlite3
+
+    state_dir = data_dir / "state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    db_path = state_dir / "diff_history.db"
+    conn = sqlite3.connect(str(db_path))
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS runs (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              scanner TEXT NOT NULL,
+              analysis_time TEXT NOT NULL,
+              baseline_date TEXT,
+              created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE(scanner, analysis_time)
+            )
+            """
+        )
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              run_id INTEGER NOT NULL,
+              event_type TEXT NOT NULL,
+              ticker TEXT NOT NULL,
+              name TEXT,
+              sector TEXT,
+              score REAL,
+              entry TEXT,
+              created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+              UNIQUE(run_id, event_type, ticker),
+              FOREIGN KEY(run_id) REFERENCES runs(id)
+            )
+            """
+        )
+        # 분석 시각만 바뀌고 신규·탈락 목록이 동일하면(앱 재실행·재동기화 등) 행을 추가하지 않음
+        fp_new = _diff_history_fingerprint(added, removed)
+        fp_prev = _diff_history_last_fingerprint(conn, scanner)
+        if fp_prev is not None and fp_prev == fp_new:
+            return db_path
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO runs(scanner, analysis_time, baseline_date)
+            VALUES (?, ?, ?)
+            """,
+            (scanner, analysis_time, baseline_date),
+        )
+        cur.execute(
+            "SELECT id FROM runs WHERE scanner = ? AND analysis_time = ?",
+            (scanner, analysis_time),
+        )
+        row = cur.fetchone()
+        run_id = int(row[0]) if row else None
+        if run_id is not None:
+            for et, items in (("added", added), ("removed", removed)):
+                for it in items:
+                    cur.execute(
+                        """
+                        INSERT OR IGNORE INTO events(run_id, event_type, ticker, name, sector, score, entry)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            run_id,
+                            et,
+                            str(it.get("ticker") or ""),
+                            str(it.get("name") or ""),
+                            str(it.get("sector") or ""),
+                            float(it.get("score")) if it.get("score") is not None else None,
+                            str(it.get("entry") or ""),
+                        ),
+                    )
+        conn.commit()
+    finally:
+        conn.close()
+    return db_path
+
+
+def _load_diff_history_sqlite(
+    *,
+    db_path: Path,
+    scanner: str,
+    limit: int = 200,
+    candidates_module: str | None = None,
+) -> tuple[int, int, list[dict[str, Any]]]:
+    import sqlite3
+
+    if not db_path.exists():
+        return 0, 0, []
+    conn = sqlite3.connect(str(db_path))
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT
+              COUNT(DISTINCT CASE WHEN e.event_type='added' THEN e.ticker END) AS added_n,
+              COUNT(DISTINCT CASE WHEN e.event_type='removed' THEN e.ticker END) AS removed_n
+            FROM events e
+            JOIN runs r ON r.id = e.run_id
+            WHERE r.scanner = ?
+            """,
+            (scanner,),
+        )
+        c = cur.fetchone() or (0, 0)
+        total_added = int(c[0] or 0)
+        total_removed = int(c[1] or 0)
+        cur.execute(
+            """
+            CREATE TEMP TABLE IF NOT EXISTS candidate_lookup (
+              ticker TEXT PRIMARY KEY,
+              name TEXT,
+              sector TEXT
+            )
+            """
+        )
+        cur.execute("DELETE FROM candidate_lookup")
+        if candidates_module:
+            try:
+                cm = __import__(candidates_module)
+                cand = getattr(cm, "CANDIDATES", {}) or {}
+                if isinstance(cand, dict):
+                    rows_to_insert: list[tuple[str, str, str]] = []
+                    for tk, info in cand.items():
+                        t = str(tk or "").strip()
+                        if not t:
+                            continue
+                        nm = ""
+                        sec = ""
+                        if isinstance(info, (list, tuple)):
+                            if len(info) > 0:
+                                nm = str(info[0] or "").strip()
+                            if len(info) > 1:
+                                sec = str(info[1] or "").strip()
+                        rows_to_insert.append((t, nm, sec))
+                    if rows_to_insert:
+                        cur.executemany(
+                            "INSERT OR REPLACE INTO candidate_lookup(ticker, name, sector) VALUES (?, ?, ?)",
+                            rows_to_insert,
+                        )
+            except Exception:
+                pass
+        cur.execute(
+            """
+            SELECT
+              r.analysis_time,
+              e.event_type,
+              e.ticker,
+              COALESCE(NULLIF(e.name, ''), c.name, '') AS name,
+              COALESCE(NULLIF(e.sector, ''), c.sector, '') AS sector,
+              e.score
+            FROM events e
+            JOIN runs r ON r.id = e.run_id
+            LEFT JOIN candidate_lookup c ON c.ticker = e.ticker
+            WHERE r.scanner = ?
+            ORDER BY e.id DESC
+            LIMIT ?
+            """,
+            (scanner, int(limit)),
+        )
+        seen: set[tuple[str, str]] = set()
+        rows: list[dict[str, Any]] = []
+        for (a, et, t, n, s, sc) in cur.fetchall():
+            key = (str(t), et)
+            if key in seen:
+                continue
+            seen.add(key)
+            rows.append({
+                "분析시각": a,
+                "구분": ("신규" if et == "added" else "탈락"),
+                "티커": t,
+                "종목명": n,
+                "섹터": s,
+                "점수": sc,
+            })
+        return total_added, total_removed, rows
+    finally:
+        conn.close()
+
+
+def _apply_rank_delta_enrichment(payload: dict, data_dir: Path) -> None:
+    """열어둔 payload에 대해 state/rank_by_date.json으로 Δ1d/Δ3d/Δ6d를 다시 붙입니다.
+    스냅샷 앵커는 ``diff_snapshot_date``(없으면 KST 오늘)입니다."""
+
+    import sys
+
+    if not isinstance(payload, dict):
+        return
+    state_path = data_dir / "state" / "rank_by_date.json"
+    if not state_path.is_file():
+        return
+    top = payload.get("top_table")
+    matches = payload.get("matches") or []
+    if not isinstance(top, list) or not top:
+        return
+    here = data_dir.parent.resolve()
+    if str(here) not in sys.path:
+        sys.path.insert(0, str(here))
+    try:
+        from rank_delta_utils import (
+            attach_rank_deltas_to_rows,
+            calendar_today_kst_iso,
+            load_rank_by_date,
+            normalize_ticker_key,
+        )
+    except ImportError:
+        return
+    rank_hist = load_rank_by_date(str(state_path))
+    if not rank_hist:
+        return
+    asof = str(payload.get("diff_snapshot_date") or "").strip()
+    if len(asof) != 10:
+        idx0 = payload.get("index")
+        if isinstance(idx0, dict):
+            asof = str(idx0.get("as_of") or "").strip()
+    if len(asof) != 10:
+        lat0 = str(payload.get("last_analysis_time") or "").strip()
+        if len(lat0) >= 10 and lat0[4] == "-" and lat0[7] == "-":
+            asof = lat0[:10]
+    if len(asof) != 10:
+        asof = calendar_today_kst_iso()
+    rank_hist_before = {k: v for k, v in rank_hist.items() if k != asof}
+    tr: dict[str, int] = {}
+    for m in matches:
+        if not isinstance(m, dict) or m.get("ticker") is None:
+            continue
+        try:
+            tr[normalize_ticker_key(str(m["ticker"]))] = int(m["rank"])
+        except (TypeError, ValueError, KeyError):
+            continue
+    for row in top:
+        if not isinstance(row, dict):
+            continue
+        tid = normalize_ticker_key(str(row.get("ticker") or ""))
+        if tid and tid in tr:
+            row["rank"] = tr[tid]
+    meta = attach_rank_deltas_to_rows(top, rank_hist_before, asof)
+    prev = payload.get("rank_delta_meta")
+    payload["rank_delta_meta"] = {**(prev if isinstance(prev, dict) else {}), **meta}
+
+
 def _render_scanner_page(
     title: str,
     data_dir_name: str,
     module_name: str,
     candidates_module: str,
     index_label: str,
+    *,
+    show_index: bool = True,
+    run_export_name: str | None = None,
 ) -> None:
-    """코스닥/코스피 스캐너 공통 렌더러."""
+    """코스닥/코스피 스캐너 공통 렌더러. 급등주(로컬)는 show_index=False."""
     import os, json, threading, sys
     from pathlib import Path
 
     st.title(title)
+    _weinstein_tip_caption(salt=f"scanner_title:{data_dir_name}")
 
     HERE        = Path(__file__).parent
     DATA_DIR    = HERE / data_dir_name
@@ -5087,7 +10171,10 @@ def _render_scanner_page(
         if str(HERE) not in sys.path:
             sys.path.insert(0, str(HERE))
         mod = __import__(module_name)
-        run_export = getattr(mod, f"run_{module_name.split('_')[0]}_export")
+        if run_export_name:
+            run_export = getattr(mod, run_export_name)
+        else:
+            run_export = getattr(mod, f"run_{module_name.split('_')[0]}_export")
         _core_ok = True
     except Exception as e:
         st.error(f"{module_name} 임포트 실패: {e}")
@@ -5101,22 +10188,39 @@ def _render_scanner_page(
     if err_key not in st.session_state:
         st.session_state[err_key] = None
 
-    col_btn, col_status = st.columns([1, 4])
-    with col_btn:
-        scan_clicked = st.button(
-            "🔍 스캔 시작",
-            key=f"btn_{data_dir_name}",
-            disabled=st.session_state[scan_key] or not _core_ok,
-            use_container_width=True,
-        )
-    with col_status:
-        if st.session_state[scan_key]:
-            st.info("⏳ 스캔 중… (5~20분 소요)", icon="⏳")
-        elif RESULTS_JSON.exists():
-            import datetime as _dt
-            mtime = RESULTS_JSON.stat().st_mtime
-            ts = _dt.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
-            st.success(f"마지막 분석: {ts}", icon="✅")
+    def _quick_last_analysis_from_json(p: Any) -> str | None:
+        """스캐너 시각: results_web + 공용 universe_meta.updated_at 중 더 늦은 값."""
+        try:
+            if not p.is_file():
+                return None
+            with open(p, encoding="utf-8") as f:
+                d = json.load(f)
+            if not isinstance(d, dict):
+                return None
+            v = _scanner_freshest_display_time(d, app_root=HERE)
+            return v if v != "—" else None
+        except Exception:
+            return None
+
+    with _st_try_border_container():
+        col_btn, col_status = st.columns([1, 4])
+        with col_btn:
+            scan_clicked = st.button(
+                "스캔 시작",
+                key=f"btn_{data_dir_name}",
+                disabled=st.session_state[scan_key] or not _core_ok,
+                use_container_width=True,
+            )
+        with col_status:
+            if st.session_state[scan_key]:
+                st.info("스캔 중… (5~20분 소요)")
+            elif RESULTS_JSON.exists():
+                ts_payload = _quick_last_analysis_from_json(RESULTS_JSON)
+                if ts_payload:
+                    st.success(f"마지막 분석: {ts_payload}")
+                else:
+                    ts = _file_mtime_str_kst(RESULTS_JSON, "%Y-%m-%d %H:%M")
+                    st.success(f"마지막 분석(파일시각 KST): {ts}")
 
     if scan_clicked and _core_ok:
         st.session_state[scan_key] = True
@@ -5141,6 +10245,8 @@ def _render_scanner_page(
         try:
             with open(RESULTS_JSON, encoding="utf-8") as f:
                 payload = json.load(f)
+            if isinstance(payload, dict):
+                _apply_rank_delta_enrichment(payload, DATA_DIR)
         except Exception as e:
             st.warning(f"결과 파일 로드 실패: {e}")
 
@@ -5148,132 +10254,779 @@ def _render_scanner_page(
         st.info("결과 없음. '스캔 시작' 버튼을 눌러 분석을 실행하세요.")
         return
 
-    # ── 지수 현황 ────────────────────────────────────────────────
-    idx_status = payload.get("index", {})
-    tone       = idx_status.get("tone", "unknown")
-    headline   = idx_status.get("headline", "")
-    tone_map   = {
-        "stage2":  ("✅ Stage2 상승", "success"),
-        "bear":    ("❌ 약세 (종가<MA200)", "error"),
-        "caution": ("⚠️ 단기 둔화 (종가<MA50)", "warning"),
-        "weak":    ("🔶 조정·횡보", "warning"),
-        "unknown": ("❓ 데이터 없음", "info"),
-    }
-    tone_lbl, tone_type = tone_map.get(tone, ("❓ 알 수 없음", "info"))
+    if show_index:
+        # ── 지수 현황 ────────────────────────────────────────────────
+        idx_status = payload.get("index", {})
+        tone       = idx_status.get("tone", "unknown")
+        headline   = idx_status.get("headline", "")
+        tone_map   = {
+            "stage2":  ("Stage2 상승", "success", "#15803d"),
+            "bear":    ("약세 (종가<MA200)", "error", "#b91c1c"),
+            "caution": ("단기 둔화 (종가<MA50)", "error", "#c2410c"),
+            "weak":    ("조정·횡보", "error", "#b45309"),
+            "unknown": ("데이터 없음", "info", "#64748b"),
+        }
+        tone_lbl, _, tone_color = tone_map.get(tone, ("알 수 없음", "info", "#64748b"))
 
-    with st.container(border=True):
-        st.markdown(f"### 🏛️ {index_label} 지수 현황")
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("지수 상태", tone_lbl)
-        c2.metric("종가",  f"{idx_status.get('last_close', '-'):,}" if idx_status.get("last_close") else "-")
-        c3.metric("MA50",  f"{idx_status.get('ma50',  '-'):,}"      if idx_status.get("ma50")       else "-")
-        c4.metric("MA200", f"{idx_status.get('ma200', '-'):,}"      if idx_status.get("ma200")      else "-")
-        getattr(st, tone_type)(headline)
+        with st.container(border=True):
+            _idx_close = _fmt_index_metric(idx_status.get("last_close"))
+            _idx_ma50 = _fmt_index_metric(idx_status.get("ma50"))
+            _idx_ma200 = _fmt_index_metric(idx_status.get("ma200"))
+            hl_txt = html.escape(str(headline or "").strip() or str(tone_lbl))
+            _badge_bg = {"stage2": "#dcfce7", "bear": "#fee2e2", "caution": "#ffedd5", "weak": "#fef3c7"}.get(
+                tone, "#f1f5f9"
+            )
+            _badge_fg = {"stage2": "#15803d", "bear": "#b91c1c", "caution": "#c2410c", "weak": "#b45309"}.get(
+                tone, "#64748b"
+            )
+            st.markdown(
+                f"""<div style="padding:0.45rem 0.6rem 0.35rem 0.6rem;line-height:1.3;">
+  <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;margin-bottom:0.3rem;">
+    <span style="font-size:0.88rem;font-weight:700;color:#0f172a;">📊 {html.escape(str(index_label))} 지수</span>
+    <span style="font-size:0.78rem;font-weight:700;padding:0.1rem 0.55rem;border-radius:999px;background:{_badge_bg};color:{_badge_fg};">{html.escape(tone_lbl)}</span>
+  </div>
+  <div style="display:flex;gap:0.9rem;flex-wrap:wrap;font-size:0.8rem;color:#374151;">
+    <span><span style="color:#94a3b8;font-size:0.72rem;">종가</span>&nbsp;<b style="color:#0f172a;">{html.escape(_idx_close)}</b></span>
+    <span><span style="color:#94a3b8;font-size:0.72rem;">MA50</span>&nbsp;<b style="color:#0f172a;">{html.escape(_idx_ma50)}</b></span>
+    <span><span style="color:#94a3b8;font-size:0.72rem;">MA200</span>&nbsp;<b style="color:#0f172a;">{html.escape(_idx_ma200)}</b></span>
+  </div>
+  <div style="margin-top:0.25rem;font-size:0.72rem;color:{tone_color};line-height:1.3;">{hl_txt}</div>
+</div>""",
+                unsafe_allow_html=True,
+            )
+            with st.expander("Stage2·MA 판단 기준 (상세)", expanded=False):
+                st.caption(
+                    "※ **사상 최고가**와 이 카드의 **지수 2단계**는 다릅니다. "
+                    "**엄격**: 종가>MA150>MA200·MA200 20일 우상·MA50(10봉) 상승·종가>MA50 을 **동시에** 만족하면 2단계. "
+                    "**완화**: MA150>MA200 정렬 전이어도 종가가 MA150·MA200 **모두 위**이고 나머지 추세·MA50 조건이 같으면 2단계로 표시합니다(급반등 구간 참고)."
+                )
+            with st.expander("스탠 와인스타인 · 매수를 생각할 때 세 가지 (요약)", expanded=False):
+                st.markdown(
+                    """
+**스탠 와인스타인(Stan Weinstein)** 의 4단계 모델에서, 롱 매수를 검토할 때는 보통 아래 **세 가지가 함께 맞는지**부터 점검합니다.
 
-    tab_rank, tab_sector, tab_diff, tab_charts = st.tabs(
-        ["📊 순위 테이블", "🗂️ 섹터 분포", "🔔 신규·탈락", "🖼️ 차트 뷰어"]
+1. **시장(대표 지수)이 2단계** — 지수가 상승 추세 구간인지. 이 블록의 지수 메시지가 그 여부를 가리킵니다.  
+2. **섹터(업종)가 좋을 것** — 주도 업종·상대 강도가 살아 있는지. **이 페이지의 「섹터 분포」 탭**에서 교차 확인하세요.  
+3. **개별 종목이 2단계** — 종목 자체가 돌파·추세 전환 후 상승 국면에 있는지. 이 스캐너의 Stage2 후보는 그중 **종목 쪽**을 정리한 결과입니다.
+
+셋 중 하나라도 부족하면 성공 확률이 떨어지기 쉽습니다. **“지수는 약한데 종목만 센 경우”**·**“종목만 보고 시장·섹터를 안 보는 경우”**는 특히 손익 구조를 나쁘게 만들 수 있으니, 위 순서로 화면을 함께 보는 것이 좋습니다.
+
+*(투자 권유가 아니라 단계 이론·이 앱 UI 흐름에 맞춘 요약입니다.)*
+"""
+                )
+            with st.expander("4단계만 짚어보기 (와인스타인)", expanded=False):
+                st.markdown(
+                    """
+| 단계 | 흔히 쓰는 이름 | 짧은 느낌 |
+|------|----------------|-----------|
+| **1** | 베이스(Basing) | 오래 횡보·바닥권에서 수급이 갈리는 구간 |
+| **2** | 어드밴싱(Advancing) | 돌파 뒤 **상승 추세 본론** — 이 스캐너 **Stage2** 후보는 여기에 가깝게 잡힌다고 보면 됩니다 |
+| **3** | 디스트리뷰션(Distribution) | **분배·분출** — 고점 근처에서 «누가 팔고 있나»를 거래량으로 보는 이야기가 많아짐 |
+| **4** | 딥클라인(Declining) | 하락 국면 — **손실 억제·현금 비중** 같은 말이 앞으로 나옵니다 |
+
+한 종목만 보지 말고 **지수·섹터와 겹쳐 읽으라**는 말이 자주 따라붙습니다.
+"""
+                )
+    else:
+        st.info(
+            "**통합 유니버스** 스캔 — 코스피·코스닥 후보를 한 번에 Stage2로 걸러 순위화합니다. "
+            "**RS 점수**에는 가격 상대강도와 함께 **시가총액·영업이익(률)** 품질 가점이 RS 상한(기본 40pt) 안에서 합산되어 잡주를 약하게 만듭니다. "
+            "와인스타인식으로 보면 **2단계(어드밴싱)**에 가까운 후보를 한 번에 모아 본다고 생각하면 이해가 빠릅니다.",
+        )
+
+    is_surge_scanner = (
+        payload.get("scanner_type") in ("local_surge", "tema_surge", "tema_surge_cache", "tema_stage2", "tema_stage2_cache")
+        or (payload.get("scoring") or {}).get("scanner_type") in ("local_surge", "tema_surge", "tema_surge_cache", "tema_stage2", "tema_stage2_cache")
     )
-
-    with tab_rank:
-        top_table = payload.get("top_table") or payload.get("matches", [])
-        if not top_table:
-            st.info("Stage2 해당 종목 없음")
-        else:
-            import pandas as _pd
-            rows = [{
-                "순위":      m.get("rank", "-"),
-                "티커":      m.get("ticker", ""),
-                "종목명":    m.get("name", ""),
-                "섹터":      m.get("sector", ""),
-                "점수":      round(float(m.get("score") or 0), 1),
-                "진입일":    m.get("entry", ""),
-                "경과봉":    m.get("bars_since_stage2_entry", "-"),
-                "RS비율":    f"{m.get('rs_ratio'):.3f}" if m.get("rs_ratio") else "-",
-                "3개월수익": f"{m.get('ret_3m_pct') or 0:.1f}%",
-                "Δ1d":       m.get("rank_delta_1d", "—"),
-                "Δ3d":       m.get("rank_delta_3d", "—"),
-                "Δ6d":       m.get("rank_delta_6d", "—"),
-            } for m in top_table]
-            df_top = _pd.DataFrame(rows)
-
-            def _cdelta(v):
-                s = str(v)
-                if s.startswith("+"): return "color:#16a34a;font-weight:bold"
-                if s.startswith("-"): return "color:#dc2626;font-weight:bold"
-                return ""
-
-            def _cscore(v):
-                try:
-                    fv = float(v)
-                    if fv >= 80: return "background-color:#dcfce7"
-                    if fv >= 50: return "background-color:#fef9c3"
-                    return "background-color:#fee2e2"
-                except Exception: return ""
-
-            st.markdown(f"**Stage2 종목 {len(top_table)}개** | 분석시각: {payload.get('last_analysis_time', '-')}")
-            st.dataframe(
-                df_top.style
-                    .applymap(_cdelta, subset=["Δ1d", "Δ3d", "Δ6d"])
-                    .applymap(_cscore, subset=["점수"]),
-                use_container_width=True, hide_index=True,
+    top_table = payload.get("top_table") or payload.get("matches", [])
+    top_table_rank_view: list[dict[str, Any]] = list(top_table)
+    if str(data_dir_name) == "etf_data":
+        n_cand = int(payload.get("candidate_count") or 0)
+        n_s2 = len(payload.get("matches") or [])
+        st.caption(f"총 ETF 후보: {n_cand}개 | Stage2: {n_s2}개")
+        st.session_state.setdefault("etf_data_sector_filter", _ETF_SECTOR_FILTER_OPTIONS[0])
+        with st.container(border=True):
+            _flt = st.selectbox(
+                "섹터 필터",
+                options=list(_ETF_SECTOR_FILTER_OPTIONS),
+                key="etf_data_sector_filter",
+                help="목록에서만 선택할 수 있습니다. (고정 옵션)",
             )
 
-    with tab_sector:
-        sec_tbl = payload.get("sector_score_table") or []
-        if not sec_tbl:
-            st.info("섹터 데이터 없음")
-        else:
-            import pandas as _pd
-            df_sec = _pd.DataFrame(sec_tbl).rename(columns={
-                "sector": "섹터", "count": "종목수",
-                "avg_score": "평균점수", "max_score": "최고점수",
-            })
-            c_left, c_right = st.columns([2, 3])
-            with c_left:
-                st.dataframe(df_sec, use_container_width=True, hide_index=True)
-            with c_right:
+            def _etf_rank_keep(m: dict[str, Any]) -> bool:
+                if _flt == "전체":
+                    return True
+                return str(m.get("sector") or "").strip() == _flt
+
+            if _flt != "전체":
+                top_table_rank_view = [m for m in top_table if _etf_rank_keep(m)]
+    universe_sector_counts = _candidate_universe_sector_counts(
+        module_name=module_name,
+        candidates_module=candidates_module,
+        is_surge_scanner=is_surge_scanner,
+    )
+    sector_rows_100 = _sector_table_from_top_candidates(
+        top_table_rank_view,
+        is_surge_scanner=is_surge_scanner,
+        universe_sector_counts=universe_sector_counts,
+        top_n=30,
+    )
+
+    # 신규/탈락 누적 이력 DB 저장 (동일 diff 반복 방지: 직전 run과 이벤트 지문 비교)
+    _scanner_name = str(payload.get("scanner_type") or data_dir_name)
+    _analysis_time = str(payload.get("last_analysis_time") or "")
+    _baseline = str(payload.get("diff_baseline_date") or "")
+    _added_now = payload.get("last_diff_added") or []
+    _removed_now = payload.get("last_diff_removed") or []
+    diff_db_path = _record_diff_history_sqlite(
+        data_dir=DATA_DIR,
+        scanner=_scanner_name,
+        analysis_time=_analysis_time,
+        baseline_date=_baseline,
+        added=_added_now,
+        removed=_removed_now,
+    )
+    total_added_hist, total_removed_hist, recent_hist_rows = _load_diff_history_sqlite(
+        db_path=diff_db_path,
+        scanner=_scanner_name,
+        limit=200,
+        candidates_module=candidates_module,
+    )
+
+    # 순위 표·섹터 드릴다운 등 탭 전역에서 쓰는 스타일 헬퍼 (if/else 밖에 두어 NameError 방지)
+    def _sty_ret(v: Any) -> str:
+        try:
+            x = float(str(v).replace("%", "").replace("+", ""))
+            if x >= 10.0:
+                return "color:#15803d;font-weight:800;"
+            if x >= 3.0:
+                return "color:#166534;font-weight:700;"
+            if x >= 0.0:
+                return "color:#374151;"
+            if x >= -5.0:
+                return "color:#991b1b;"
+            return "color:#b91c1c;font-weight:700;"
+        except (TypeError, ValueError):
+            return ""
+
+    def _sty_delta(v: Any) -> str:
+        s = str(v)
+        if s.startswith("+"):
+            return "color:#16a34a;font-weight:700;"
+        if s.startswith("-"):
+            return "color:#dc2626;font-weight:700;"
+        return ""
+
+    def _sty_score(v: Any) -> str:
+        try:
+            x = float(v)
+            if x >= 80:
+                return "color:#15803d;font-weight:700;"
+            if x >= 50:
+                return "color:#b45309;font-weight:700;"
+            return "color:#b91c1c;font-weight:700;"
+        except Exception:
+            return ""
+
+    def _sty_rs(v: Any) -> str:
+        try:
+            x = float(str(v).replace("-", ""))
+            if x >= 1.0:
+                return "color:#15803d;font-weight:700;"
+            if x >= 0.95:
+                return "color:#b45309;font-weight:600;"
+            return "color:#94a3b8;"
+        except Exception:
+            return ""
+
+    if not top_table:
+        st.info("Stage2 해당 종목 없음")
+    elif not top_table_rank_view:
+        st.warning("섹터 필터에 맞는 ETF가 없습니다. 필터를 바꿔 보세요.")
+    else:
+        import pandas as _pd
+
+        def _ret_color_css(v: str) -> str:
+            try:
+                x = float(str(v).replace("%", "").replace("+", ""))
+                if x >= 5.0:
+                    return "#15803d"
+                if x >= 0.0:
+                    return "#374151"
+                return "#b91c1c"
+            except (TypeError, ValueError):
+                return "#94a3b8"
+
+        def _delta_color_css(v: str) -> str:
+            try:
+                x = float(str(v).replace("+", ""))
+                if x > 0:
+                    return "#15803d"
+                if x < 0:
+                    return "#b91c1c"
+                return "#64748b"
+            except (TypeError, ValueError):
+                return "#94a3b8"
+
+        def _fmt_ret_since_stage2_entry(m: dict) -> str:
+            v = m.get("ret_since_entry_pct")
+            if v is not None:
                 try:
-                    import plotly.graph_objects as go
-                    fig = go.Figure(go.Bar(
-                        x=df_sec["섹터"], y=df_sec["종목수"],
-                        marker_color="#0ea5e9", text=df_sec["종목수"],
-                        textposition="outside",
-                    ))
-                    fig.update_layout(
-                        title=f"섹터별 Stage2 종목 수",
-                        xaxis_tickangle=-35, height=350,
-                        margin=dict(t=50, b=80),
-                    )
-                    st.plotly_chart(fig, use_container_width=True)
-                except ImportError:
-                    st.bar_chart(df_sec.set_index("섹터")["종목수"])
+                    return f"{float(v):+.1f}%"
+                except (TypeError, ValueError):
+                    pass
+            try:
+                return f"{float(m.get('ret_3m_pct') or 0):+.1f}%"
+            except (TypeError, ValueError):
+                return "—"
+
+        # ── Top3 하이라이트 카드 (진입 적합성 기준 재선정) ──────────
+        def _top3_entry_score(m: dict[str, Any]) -> float:
+            """
+            단순 점수 순위가 아닌 "지금 진입하기 좋은" 종목 선정 기준.
+            높을수록 좋음.
+
+            구성:
+              1) 기본 점수 (40%) - RS·거래량 강도 반영
+              2) 진입 초입 가점 (30%) - bars 적을수록 높음
+              3) 비과열 가점 (20%) - 20일이격 낮을수록 높음
+              4) Δ 모멘텀 가점 (10%) - 순위 올라오는 중이면 가점
+            """
+            base_score = float(m.get("score") or 0)
+
+            # 1) 기본 점수 반영 (0~40)
+            pts_base = min(base_score / 100.0 * 40.0, 40.0)
+
+            # 2) 진입 초입 가점: bars 적을수록 높음 (0~30)
+            bars = int(m.get("bars_since_stage2_entry") or 10_000)
+            if bars <= 5:
+                pts_bars = 30.0
+            elif bars <= 10:
+                pts_bars = 25.0
+            elif bars <= 20:
+                pts_bars = 20.0
+            elif bars <= 40:
+                pts_bars = 12.0
+            elif bars <= 60:
+                pts_bars = 6.0
+            elif bars <= 110:
+                pts_bars = 2.0
+            else:
+                pts_bars = 0.0
+
+            # 3) 비과열 가점: 20일이격 낮을수록 높음 (0~20), 과열이면 패널티
+            d20 = None
+            for k in ("dist_ma20_pct", "disparity_20_pct", "close_vs_ma20_pct", "pct_from_ma20"):
+                v = m.get(k)
+                if v is not None:
+                    try:
+                        d20 = float(v)
+                        break
+                    except (TypeError, ValueError):
+                        pass
+            if d20 is None:
+                pts_disp = 10.0  # 데이터 없으면 중립
+            elif d20 <= 5.0:
+                pts_disp = 20.0
+            elif d20 <= 10.0:
+                pts_disp = 15.0
+            elif d20 <= 15.0:
+                pts_disp = 8.0
+            elif d20 <= 20.0:
+                pts_disp = 2.0
+            else:
+                pts_disp = -15.0  # 과열 패널티
+
+            # 4) Δ 모멘텀 가점 (0~10)
+            def _pd(key: str) -> int:
+                s = str(m.get(key, "") or "").strip()
+                if not s or s in ("—", "-", "None", "null"):
+                    return 0
+                try:
+                    return int(float(s))
+                except (TypeError, ValueError):
+                    return 0
+
+            d1 = _pd("rank_delta_1d")
+            d3 = _pd("rank_delta_3d")
+            pts_delta = min(max(d1 * 0.5 + d3 * 0.3, -5.0), 10.0)
+
+            return pts_base + pts_bars + pts_disp + pts_delta
+
+        # 과열 종목(20일이격 +25% 초과)은 Top3 후보에서 제외
+        def _is_overheated_top3(m: dict[str, Any]) -> bool:
+            for k in ("dist_ma20_pct", "disparity_20_pct", "close_vs_ma20_pct", "pct_from_ma20"):
+                v = m.get(k)
+                if v is not None:
+                    try:
+                        return float(v) > 25.0
+                    except (TypeError, ValueError):
+                        pass
+            return False
+
+        _top3_pool = [m for m in top_table_rank_view if not _is_overheated_top3(m)]
+        _top3_pool.sort(key=_top3_entry_score, reverse=True)
+        top3 = _top3_pool[:3]
+
+        # 후보 부족 시 원래 순위로 폴백
+        if not top3:
+            top3 = top_table_rank_view[:3]
+        if top3:
+            st.markdown("##### 🏆 Top 3")
+            cols_t3 = st.columns(len(top3))
+            for col, m in zip(cols_t3, top3):
+                name = m.get("name", "")
+                score = round(float(m.get("score") or 0), 1)
+                ret = _fmt_ret_since_stage2_entry(m)
+                try:
+                    rs = f"{float(m.get('rs_ratio')):.3f}" if m.get("rs_ratio") is not None else "—"
+                except (TypeError, ValueError):
+                    rs = "—"
+                d1 = str(m.get("rank_delta_1d", "—") or "—")
+                d3 = str(m.get("rank_delta_3d", "—") or "—")
+                d6 = str(m.get("rank_delta_6d", "—") or "—")
+                entry = str(m.get("entry", "") or "—")[:10]
+                sector = str(m.get("sector", "") or "—")
+                col.markdown(
+                    f"""<div style="border:1px solid #e2e8f0;border-radius:10px;
+                        padding:0.65rem 0.8rem;background:#f8fafc;margin-bottom:0.4rem;">
+                      <div style="font-size:0.83rem;font-weight:800;color:#0f172a;
+                          white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{html.escape(name)}</div>
+                      <div style="font-size:0.68rem;color:#64748b;margin-bottom:0.2rem;">
+                          {html.escape(sector)} · {score}점</div>
+                      <div style="font-size:1.0rem;font-weight:800;
+                          color:{_ret_color_css(ret)};">{html.escape(ret)}</div>
+                      <div style="font-size:0.68rem;color:#64748b;margin-top:0.1rem;">
+                          RS {html.escape(rs)} · 진입 {html.escape(entry)}</div>
+                      <div style="font-size:0.65rem;margin-top:0.1rem;">
+                          <span style="color:{_delta_color_css(d1)};">Δ1d {html.escape(d1)}</span>
+                          &nbsp;<span style="color:{_delta_color_css(d3)};">Δ3d {html.escape(d3)}</span>
+                          &nbsp;<span style="color:{_delta_color_css(d6)};">Δ6d {html.escape(d6)}</span>
+                      </div>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+            st.markdown("<div style='margin-top:0.4rem'></div>", unsafe_allow_html=True)
+
+        # ── 순위 테이블 ──────────────────────────────────────────
+        rows: list[dict[str, Any]] = []
+        for m in top_table_rank_view:
+            _rsv = m.get("rs_ratio")
+            try:
+                rs_cell = f"{float(_rsv):.3f}" if _rsv is not None else "—"
+            except (TypeError, ValueError):
+                rs_cell = "—"
+            row: dict[str, Any] = {
+                "순위": int(m.get("rank") or 0),
+                "종목명": m.get("name", ""),
+                "점수": round(float(m.get("score") or 0), 1),
+                "진입후수익": _fmt_ret_since_stage2_entry(m),
+                "RS": rs_cell,
+                "1Δ": m.get("rank_delta_1d", "—"),
+                "3Δ": m.get("rank_delta_3d", "—"),
+                "6Δ": m.get("rank_delta_6d", "—"),
+                "진입일": str(m.get("entry", "") or "—")[:10],
+                "섹터": m.get("sector", ""),
+            }
+            if is_surge_scanner:
+                mkt, sec, theme = _local_surge_labels(m)
+                row["시장"] = mkt
+                row["섹터"] = sec
+                row["테마"] = theme
+                mcap = m.get("market_cap")
+                om = m.get("operating_margin")
+                try:
+                    row["시총(억)"] = f"{float(mcap)/1e8:,.1f}" if mcap is not None else "—"
+                except Exception:
+                    row["시총(억)"] = "—"
+                try:
+                    row["영업이익률"] = f"{float(om)*100:.1f}%" if om is not None else "—"
+                except Exception:
+                    row["영업이익률"] = "—"
+            rows.append(row)
+
+        df_top = _pd.DataFrame(rows)
+
+        _col_order_surge = ["순위", "종목명", "점수", "진입후수익", "RS", "1Δ", "3Δ", "6Δ", "진입일", "시장", "섹터", "테마", "시총(억)", "영업이익률"]
+        _col_order_normal = ["순위", "종목명", "점수", "진입후수익", "RS", "1Δ", "3Δ", "6Δ", "진입일", "섹터"]
+        _col_order = _col_order_surge if is_surge_scanner else _col_order_normal
+        _have = list(df_top.columns)
+        df_top = df_top[[c for c in _col_order if c in _have] + [c for c in _have if c not in _col_order]]
+
+        _sty = df_top.style
+        for _fn, _cols in (
+            (_sty_ret, ["진입후수익"]),
+            (_sty_delta, ["1Δ", "3Δ", "6Δ"]),
+            (_sty_score, ["점수"]),
+            (_sty_rs, ["RS"]),
+        ):
+            _avail = [c for c in _cols if c in df_top.columns]
+            if _avail:
+                if hasattr(_sty, "map"):
+                    _sty = _sty.map(_fn, subset=_avail)
+                elif hasattr(_sty, "applymap"):
+                    _sty = _sty.applymap(_fn, subset=_avail)
+
+        _df_disp = _sty
+
+        if str(data_dir_name) in ("kospi_data", "kosdaq_data", "etf_data"):
+            uid_wl = st.session_state.get("wl_user")
+            if uid_wl:
+                _wl_ensure_watchlist_session(HERE, uid_wl)
+
+            try:
+                _st_dataframe_all_rows(
+                    _df_disp,
+                    column_config={
+                        "순위": st.column_config.NumberColumn("순위", width="small"),
+                        "종목명": st.column_config.TextColumn("종목명"),
+                        "점수": st.column_config.NumberColumn("점수", format="%.1f"),
+                        "진입후수익": st.column_config.TextColumn("진입후수익"),
+                        "RS": st.column_config.TextColumn("RS", width="small"),
+                        "1Δ": st.column_config.TextColumn("1Δ", width="small"),
+                        "3Δ": st.column_config.TextColumn("3Δ", width="small"),
+                        "6Δ": st.column_config.TextColumn("6Δ", width="small"),
+                        "진입일": st.column_config.TextColumn("진입일"),
+                        "섹터": st.column_config.TextColumn("섹터"),
+                    },
+                )
+            except Exception:
+                _st_dataframe_all_rows(df_top)
+            st.caption(f"Stage2 종목 **{len(top_table_rank_view)}개** · 분석: {_scanner_freshest_display_time(payload, app_root=HERE)}")
+
+            with st.expander("📌 점수 산출 기준", expanded=False):
+                st.markdown(
+                    "| 항목 | 최대 점수 | 설명 |\n"
+                    "|------|----------|------|\n"
+                    "| **RS (상대강도)** | 58pt | Mansfield 방식 · RS 0.95+ 최소 45pt 보장 |\n"
+                    "| **최근성** | 25pt | Stage2 진입 직후일수록 높음 |\n"
+                    "| **거래량 모멘텀** | 35pt | 5일/20일/벤치 대비 거래량 강도 |\n"
+                    "| **펀더멘털 가점** | 10pt | 시가총액 + 영업이익률 |\n\n"
+                    "- **진입후수익**: Stage2 진입일 종가 → 오늘 종가 누적 수익률\n"
+                    "- **RS**: 1.0 이상 = 시장 대비 강세 · 데이터 부족 시 63일 RS로 폴백\n"
+                    "- **Δ1d·3d·6d**: 양수(+) = 순위 상승, 음수(−) = 순위 하락"
+                )
+
+            _weinstein_tip_caption(salt=f"rank:{data_dir_name}:{len(top_table_rank_view)}")
+
+            if uid_wl:
+                _wl_render_watch_star_grid(
+                    HERE, uid_wl, top_table_rank_view,
+                    cols_step=6,
+                    key_fn=lambda i, m, dn=data_dir_name: f"wlstar_{dn}_{i}",
+                )
+        else:
+            try:
+                _st_dataframe_all_rows(_df_disp)
+            except Exception:
+                _st_dataframe_all_rows(df_top)
+
+        st.markdown("---")
+
+    tab_diff, tab_sector, tab_charts = st.tabs(["신규·탈락", "섹터 분포", "차트 뷰어"])
 
     with tab_diff:
-        added   = payload.get("last_diff_added",   [])
+        added = payload.get("last_diff_added", [])
         removed = payload.get("last_diff_removed", [])
         baseline = payload.get("diff_baseline_date", "-")
         st.caption(f"비교 기준일: **{baseline}**")
+        _weinstein_tip_caption(salt=f"diff:{data_dir_name}")
+
         ca, cr = st.columns(2)
         with ca:
-            st.markdown(f"#### 🟢 신규 진입 ({len(added)}개)")
+            st.markdown(
+                f'<div style="font-size:0.9rem;font-weight:800;color:#15803d;'
+                f'margin-bottom:0.4rem;">🟢 신규 진입 {len(added)}개</div>',
+                unsafe_allow_html=True,
+            )
             if added:
                 import pandas as _pd
-                st.dataframe(_pd.DataFrame([{
-                    "티커": r.get("ticker",""), "종목명": r.get("name",""),
-                    "섹터": r.get("sector",""), "점수": r.get("score","-"),
-                } for r in added]), use_container_width=True, hide_index=True)
+                if is_surge_scanner:
+                    _st_dataframe_all_rows(_pd.DataFrame([{
+                        "티커": r.get("ticker", ""),
+                        "종목명": r.get("name", ""),
+                        "시장": _local_surge_labels(r)[0],
+                        "섹터": _local_surge_labels(r)[1],
+                        "테마": _local_surge_labels(r)[2],
+                        "점수": r.get("score", "-"),
+                    } for r in added]))
+                else:
+                    _st_dataframe_all_rows(_pd.DataFrame([{
+                        "티커": r.get("ticker", ""),
+                        "종목명": r.get("name", ""),
+                        "섹터": r.get("sector", ""),
+                        "점수": r.get("score", "-"),
+                    } for r in added]))
             else:
                 st.info("없음")
+
         with cr:
-            st.markdown(f"#### 🔴 탈락 ({len(removed)}개)")
+            st.markdown(
+                f'<div style="font-size:0.9rem;font-weight:800;color:#b91c1c;'
+                f'margin-bottom:0.4rem;">🔴 탈락 {len(removed)}개</div>',
+                unsafe_allow_html=True,
+            )
             if removed:
                 import pandas as _pd
-                st.dataframe(_pd.DataFrame([{
-                    "티커": r.get("ticker",""), "종목명": r.get("name",""),
-                    "섹터": r.get("sector",""),
-                } for r in removed]), use_container_width=True, hide_index=True)
+                if is_surge_scanner:
+                    _st_dataframe_all_rows(_pd.DataFrame([{
+                        "티커": r.get("ticker", ""),
+                        "종목명": r.get("name", ""),
+                        "시장": _local_surge_labels(r)[0],
+                        "섹터": _local_surge_labels(r)[1],
+                        "테마": _local_surge_labels(r)[2],
+                    } for r in removed]))
+                else:
+                    _st_dataframe_all_rows(_pd.DataFrame([{
+                        "티커": r.get("ticker", ""),
+                        "종목명": r.get("name", ""),
+                        "섹터": r.get("sector", ""),
+                    } for r in removed]))
             else:
                 st.info("없음")
+
+        st.divider()
+        st.markdown(
+            f'<div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:0.5rem;">'
+            f'<div style="border:1px solid #e2e8f0;border-radius:8px;padding:0.4rem 0.8rem;'
+            f'background:#f0fdf4;font-size:0.82rem;">'
+            f'<span style="color:#64748b;">누적 신규</span>&nbsp;'
+            f'<b style="color:#15803d;font-size:1.0rem;">{total_added_hist}</b></div>'
+            f'<div style="border:1px solid #e2e8f0;border-radius:8px;padding:0.4rem 0.8rem;'
+            f'background:#fff1f2;font-size:0.82rem;">'
+            f'<span style="color:#64748b;">누적 탈락</span>&nbsp;'
+            f'<b style="color:#b91c1c;font-size:1.0rem;">{total_removed_hist}</b></div>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        st.caption(f"저장 DB: `{diff_db_path}` · 최신 200건")
+        if recent_hist_rows:
+            import pandas as _pd
+            _st_dataframe_all_rows(_pd.DataFrame(recent_hist_rows))
+        else:
+            st.info("누적 이력이 아직 없습니다.")
+
+    with tab_sector:
+        if not sector_rows_100:
+            st.info("섹터 데이터 없음")
+        else:
+            import pandas as _pd
+            min_universe_n = 3
+            sector_rows_visible = [
+                r for r in sector_rows_100 if int(r.get("universe_n") or 0) >= min_universe_n
+            ]
+            universe_total = sum(int(v) for v in (universe_sector_counts or {}).values())
+            st.caption(
+                f"상위30 비중 기준 정렬 · 유니버스 3종목 이상 섹터만 표시 · 합계 {universe_total}종"
+            )
+            _weinstein_tip_caption(salt=f"sector:{data_dir_name}")
+
+            if str(data_dir_name) == "kospi_data":
+                with st.expander("섹터 + ETF 활용법", expanded=False):
+                    st.markdown(
+                        "섹터 상위% 가 높을수록 해당 업종에 Stage2 종목이 많이 집중된 것입니다. "
+                        "코스피 섹터에는 **참고 ETF**가 표시되며, 흐름 비교용입니다. "
+                        "실제 보유 종목·비중은 발행사 공시를 확인하세요."
+                    )
+
+            cards_sec = sorted(
+                sector_rows_visible,
+                key=lambda r: (-int(r.get("top30_pct_int") or 0), -float(r.get("avg_score") or 0.0)),
+            )
+            cols_per_row = 4
+            for i in range(0, len(cards_sec), cols_per_row):
+                row_items = cards_sec[i: i + cols_per_row]
+                cols = st.columns(cols_per_row)
+                for col, r in zip(cols, row_items):
+                    sec = str(r.get("sector") or "-")
+                    pct = int(r.get("top30_pct_int") or 0)
+                    top30_n = int(r.get("top30_n") or 0)
+                    uni_n = int(r.get("universe_n") or 0)
+                    avg_s = float(r.get("avg_score") or 0.0)
+
+                    # 상위% 색상
+                    if pct <= 10:
+                        pct_color = "#15803d"
+                    elif pct <= 30:
+                        pct_color = "#b45309"
+                    else:
+                        pct_color = "#64748b"
+
+                    etf_html = ""
+                    if str(data_dir_name) == "kospi_data":
+                        _tk, _el = _kospi_sector_etf_pair(sec)
+                        if _tk:
+                            etf_html = (
+                                f'<div style="margin-top:0.3rem;color:#0f766e;'
+                                f'font-size:0.72rem;">'
+                                f'{html.escape(_el)} '
+                                f'<span style="color:#94a3b8;">{html.escape(_tk)}</span></div>'
+                            )
+                    with col:
+                        st.markdown(
+                            f"""<div style="border:1px solid #e2e8f0;border-radius:12px;
+                                padding:0.65rem 0.8rem;background:#ffffff;
+                                box-shadow:0 1px 3px rgba(15,23,42,0.07);
+                                min-height:110px;">
+                              <div style="font-weight:800;color:#0f172a;
+                                  font-size:0.9rem;">{html.escape(sec)}</div>
+                              <div style="font-size:1.0rem;font-weight:800;
+                                  color:{pct_color};margin-top:0.1rem;">상위 {pct}%</div>
+                              <div style="font-size:0.75rem;color:#2563eb;
+                                  margin-top:0.1rem;">평균 {avg_s:.1f}점</div>
+                              <div style="font-size:0.7rem;color:#64748b;">
+                                  상위30 {top30_n}개 / {uni_n}종</div>
+                              {etf_html}
+                            </div>""",
+                            unsafe_allow_html=True,
+                        )
+
+            # 섹터 요약 테이블
+            rows_sec = []
+            for rk, r in enumerate(sorted(
+                sector_rows_visible,
+                key=lambda r: (-int(r.get("top30_pct_int") or 0), -int(r.get("top30_n") or 0), -float(r.get("avg_score") or 0.0)),
+            ), start=1):
+                row_s: dict[str, Any] = {
+                    "섹터": r.get("sector", ""),
+                    "랭킹": rk,
+                    "상위%": f"{int(r.get('top30_pct_int') or 0)}%",
+                    "평균점수": r.get("avg_score"),
+                    "최고점수": r.get("max_score"),
+                    "상위30": int(r.get("top30_n") or 0),
+                    "유니버스": int(r.get("universe_n") or 0),
+                }
+                if str(data_dir_name) == "kospi_data":
+                    _tk, _el = _kospi_sector_etf_pair(str(r.get("sector") or ""))
+                    row_s["참고ETF"] = f"{_el}({_tk})" if _tk else "—"
+                rows_sec.append(row_s)
+            if rows_sec:
+                _st_dataframe_all_rows(_pd.DataFrame(rows_sec))
+
+            st.divider()
+            st.subheader("섹터별 종목")
+            sector_labels_drill = [str(r.get("sector") or "미분류") for r in cards_sec]
+            if sector_labels_drill:
+                def _sec_drill_ret(m: dict[str, Any]) -> float | None:
+                    v = m.get("ret_since_entry_pct")
+                    if v is not None:
+                        try:
+                            return float(v)
+                        except (TypeError, ValueError):
+                            return None
+                    try:
+                        return float(m.get("ret_3m_pct") or 0)
+                    except (TypeError, ValueError):
+                        return None
+
+                pick_sec = st.pills(
+                    "분석할 섹터",
+                    options=sector_labels_drill,
+                    selection_mode="single",
+                    default=sector_labels_drill[0],
+                    key=f"sector_drill_pick_{data_dir_name}",
+                )
+                if isinstance(pick_sec, list):
+                    pick_sec = pick_sec[0] if pick_sec else sector_labels_drill[0]
+                pick_sec = str(pick_sec or sector_labels_drill[0])
+
+                meta_sec = next(
+                    (r for r in sector_rows_visible if str(r.get("sector") or "미분류") == pick_sec),
+                    None,
+                )
+                picked_matches = [
+                    m for m in top_table
+                    if _sector_label_for_match(m, is_surge_scanner) == pick_sec
+                ]
+                picked_matches.sort(key=lambda m: (int(m.get("rank") or 999999), -float(m.get("score") or 0)))
+
+                with st.container(border=True):
+                    if meta_sec:
+                        mc1, mc2, mc3, mc4 = st.columns(4)
+                        _pct_v = int(meta_sec.get("top30_pct_int") or 0)
+                        _pct_c = "#15803d" if _pct_v <= 10 else ("#b45309" if _pct_v <= 30 else "#64748b")
+                        mc1.markdown(
+                            f'<div style="font-size:0.75rem;color:#64748b;">상위%</div>'
+                            f'<div style="font-size:1.1rem;font-weight:800;color:{_pct_c};">{_pct_v}%</div>',
+                            unsafe_allow_html=True,
+                        )
+                        mc2.metric("평균점수", f'{float(meta_sec.get("avg_score") or 0):.1f}')
+                        mc3.metric("상위30", f'{int(meta_sec.get("top30_n") or 0)}개')
+                        mc4.metric("유니버스", f'{int(meta_sec.get("universe_n") or 0)}종')
+
+                    if not picked_matches:
+                        st.info("이 섹터에 해당하는 종목이 없습니다.")
+                    else:
+                        drill_rows: list[dict[str, Any]] = []
+                        for m in picked_matches:
+                            _drv = m.get("rs_ratio")
+                            try:
+                                rs_dr = f"{float(_drv):.3f}" if _drv is not None else "—"
+                            except (TypeError, ValueError):
+                                rs_dr = "—"
+                            dr: dict[str, Any] = {
+                                "순위": int(m.get("rank") or 0),
+                                "종목명": m.get("name", ""),
+                                "티커": m.get("ticker", ""),
+                                "점수": round(float(m.get("score") or 0), 1),
+                                "진입후수익": _sec_drill_ret(m),
+                                "RS": rs_dr,
+                                "1Δ": m.get("rank_delta_1d", "—"),
+                                "3Δ": m.get("rank_delta_3d", "—"),
+                                "6Δ": m.get("rank_delta_6d", "—"),
+                                "진입일": str(m.get("entry", "") or "—")[:10],
+                            }
+                            if is_surge_scanner:
+                                _mk, _sc_l, _th = _local_surge_labels(m)
+                                dr["시장"] = _mk
+                                dr["테마"] = _th
+                            drill_rows.append(dr)
+
+                        drill_df = _pd.DataFrame(drill_rows)
+                        _order_d = (
+                            ["순위", "종목명", "티커", "점수", "진입후수익", "시장", "테마", "RS", "1Δ", "3Δ", "6Δ", "진입일"]
+                            if is_surge_scanner
+                            else ["순위", "종목명", "티커", "점수", "진입후수익", "RS", "1Δ", "3Δ", "6Δ", "진입일"]
+                        )
+                        drill_df = drill_df[[c for c in _order_d if c in drill_df.columns]]
+
+                        def _sty_drill_ret(v: Any) -> str:
+                            try:
+                                x = float(str(v).replace("%", "").replace("+", "")) if isinstance(v, str) else float(v or 0)
+                                if x >= 10.0:
+                                    return "color:#15803d;font-weight:800;"
+                                if x >= 3.0:
+                                    return "color:#166534;font-weight:700;"
+                                if x >= 0.0:
+                                    return "color:#374151;"
+                                if x >= -5.0:
+                                    return "color:#991b1b;"
+                                return "color:#b91c1c;font-weight:700;"
+                            except (TypeError, ValueError):
+                                return ""
+
+                        drill_sty = drill_df.style
+                        if hasattr(drill_sty, "map"):
+                            drill_sty = drill_sty.map(_sty_drill_ret, subset=["진입후수익"])
+                            drill_sty = drill_sty.map(_sty_delta, subset=[c for c in ["1Δ", "3Δ", "6Δ"] if c in drill_df.columns])
+                        elif hasattr(drill_sty, "applymap"):
+                            drill_sty = drill_sty.applymap(_sty_drill_ret, subset=["진입후수익"])
+                            drill_sty = drill_sty.applymap(_sty_delta, subset=[c for c in ["1Δ", "3Δ", "6Δ"] if c in drill_df.columns])
+
+                        _cc_drill = {
+                            "순위": st.column_config.NumberColumn("순위", width="small"),
+                            "점수": st.column_config.NumberColumn("점수", format="%.1f"),
+                            "진입후수익": st.column_config.NumberColumn("진입후수익", format="%.2f%%"),
+                        }
+                        try:
+                            st.dataframe(
+                                drill_sty,
+                                use_container_width=True,
+                                hide_index=True,
+                                column_config=_cc_drill,
+                            )
+                        except Exception:
+                            _st_dataframe_all_rows(drill_df, column_config=_cc_drill)
 
     with tab_charts:
         matches    = payload.get("matches", [])
@@ -5281,12 +11034,51 @@ def _render_scanner_page(
         if not chart_items:
             st.info("저장된 차트 없음 — 스캔 시 자동 생성됩니다.")
         else:
-            all_sectors = sorted({m.get("sector", "미분류") for m in chart_items})
-            sel_sector  = st.selectbox("섹터 필터", ["전체"] + all_sectors,
-                                        key=f"sec_{data_dir_name}")
-            filtered    = chart_items if sel_sector == "전체" \
-                          else [m for m in chart_items if m.get("sector") == sel_sector]
-            st.caption(f"차트 {len(filtered)}개")
+            if is_surge_scanner:
+                st.markdown("**차트 필터**")
+                filter_kind = st.selectbox(
+                    "분류 기준",
+                    ["시장", "섹터", "테마"],
+                    key=f"surge_filter_kind_{data_dir_name}",
+                )
+                label_fn = (
+                    (lambda x: _local_surge_labels(x)[0]) if filter_kind == "시장" else
+                    (lambda x: _local_surge_labels(x)[1]) if filter_kind == "섹터" else
+                    (lambda x: _local_surge_labels(x)[2])
+                )
+                all_labels = sorted({label_fn(m) for m in chart_items})
+                sel_label = st.selectbox(
+                    f"{filter_kind} 선택",
+                    ["전체"] + all_labels,
+                    key=f"surge_filter_value_{data_dir_name}",
+                )
+                filtered = chart_items if sel_label == "전체" else [m for m in chart_items if label_fn(m) == sel_label]
+            else:
+                if str(data_dir_name) == "etf_data":
+                    st.session_state.setdefault("etf_data_sector_filter", _ETF_SECTOR_FILTER_OPTIONS[0])
+                    sel_sector = str(st.session_state.get("etf_data_sector_filter") or "전체")
+                    st.caption(
+                        f"차트는 상단 **섹터 필터**와 동일하게 적용됩니다. (현재: **{html.escape(sel_sector)}**)"
+                    )
+                    filtered = (
+                        chart_items
+                        if sel_sector == "전체"
+                        else [m for m in chart_items if str(m.get("sector") or "").strip() == sel_sector]
+                    )
+                else:
+                    all_sectors = sorted({m.get("sector", "미분류") for m in chart_items})
+                    sel_sector = st.selectbox(
+                        "섹터 필터",
+                        ["전체"] + all_sectors,
+                        key=f"sec_{data_dir_name}",
+                    )
+                    filtered = (
+                        chart_items
+                        if sel_sector == "전체"
+                        else [m for m in chart_items if m.get("sector") == sel_sector]
+                    )
+            _weinstein_tip_caption(salt=f"charts:{data_dir_name}")
+            st.caption(f"차트 {len(filtered)}개 · 와인스타인식으로는 **2단계 추세**를 눈으로 확인하는 보조 도구에 가깝습니다.")
             cols_per_row = 2
             for i in range(0, len(filtered), cols_per_row):
                 row_items = filtered[i: i + cols_per_row]
@@ -5295,9 +11087,8 @@ def _render_scanner_page(
                     with col:
                         chart_path = CHARTS_DIR / item["chart"]
                         caption = (
-                            f"**#{item.get('rank')} {item.get('name')} ({item.get('ticker')})**  "
-                            f"점수: {item.get('score', 0):.1f} | 진입: {item.get('entry', '-')} | "
-                            f"경과: {item.get('bars_since_stage2_entry', '-')}봉"
+                            f"**#{item.get('rank')} {item.get('name')}** · "
+                            f"점수 {item.get('score', 0):.1f} · 진입 {item.get('entry', '-')}"
                         )
                         if chart_path.exists():
                             st.image(str(chart_path), caption=caption,
@@ -5308,7 +11099,7 @@ def _render_scanner_page(
 
 def _render_page_kosdaq() -> None:
     _render_scanner_page(
-        title="📈 코스닥 Stage2 스캐너",
+        title="코스닥 Stage2 스캐너",
         data_dir_name="kosdaq_data",
         module_name="kosdaq_export_core",
         candidates_module="kosdaq_candidates",
@@ -5318,7 +11109,7 @@ def _render_page_kosdaq() -> None:
 
 def _render_page_kospi() -> None:
     _render_scanner_page(
-        title="📊 코스피 Stage2 스캐너",
+        title="📊 코스피 Stage2 순위",
         data_dir_name="kospi_data",
         module_name="kospi_export_core",
         candidates_module="kospi_candidates",
@@ -5326,27 +11117,185 @@ def _render_page_kospi() -> None:
     )
 
 
+def _render_page_etf() -> None:
+    _render_scanner_page(
+        title="ETF Stage2 추천",
+        data_dir_name="etf_data",
+        module_name="etf_export_core",
+        candidates_module="etf_candidates",
+        index_label="코스피",
+    )
+
+
+def _render_market_kospi_kosdaq_banners() -> None:
+    """시장 진입 시 코스피·코스닥으로 안내하는 대형 배너(탭은 하단 유지)."""
+
+    b1, b2 = st.columns(2)
+    with b1:
+        st.markdown(
+            """
+<div style="border-radius:18px;padding:clamp(1.25rem,3vw,2.1rem) 1.4rem;
+background:linear-gradient(135deg,#1d4ed8 0%,#0f172a 52%,#0b1220 100%);
+border:1px solid rgba(96,165,250,0.4);box-shadow:0 10px 28px rgba(15,23,42,0.4);">
+<div style="font-size:clamp(1.55rem,4.5vw,2.25rem);font-weight:900;color:#f8fafc;letter-spacing:-0.03em;line-height:1.15;">
+코스피 Stage2</div>
+<div style="margin-top:0.55rem;font-size:clamp(0.95rem,2.5vw,1.12rem);color:#bfdbfe;line-height:1.5;">
+섹터 · 순위 · RS · 진입일까지 한 스캐너</div>
+<div style="margin-top:0.85rem;font-size:0.84rem;color:#94a3b8;">아래 메뉴에서 <b style="color:#e2e8f0;">코스피 스캐너</b>를 누르세요</div>
+</div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with b2:
+        st.markdown(
+            """
+<div style="border-radius:18px;padding:clamp(1.25rem,3vw,2.1rem) 1.4rem;
+background:linear-gradient(135deg,#0f766e 0%,#0f172a 52%,#0b1220 100%);
+border:1px solid rgba(45,212,191,0.38);box-shadow:0 10px 28px rgba(15,23,42,0.4);">
+<div style="font-size:clamp(1.55rem,4.5vw,2.25rem);font-weight:900;color:#f8fafc;letter-spacing:-0.03em;line-height:1.15;">
+코스닥 Stage2</div>
+<div style="margin-top:0.55rem;font-size:clamp(0.95rem,2.5vw,1.12rem);color:#99f6e4;line-height:1.5;">
+KQ11 벤치 · 섹터 요약 · Δ순위</div>
+<div style="margin-top:0.85rem;font-size:0.84rem;color:#94a3b8;">아래 메뉴에서 <b style="color:#e2e8f0;">코스닥 스캐너</b>를 누르세요</div>
+</div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
 def _render_page_home() -> None:
     with _portal_page_card():
         group_labels = [lbl for lbl, _ in _HOME_GROUP_SPEC]
-        group_keys   = [k   for _, k in _HOME_GROUP_SPEC]
-        group_tabs   = st.tabs(group_labels)
-        for idx, key in enumerate(group_keys):
-            with group_tabs[idx]:
-                _HOME_GROUP_DISPATCH[key]()
+        group_keys = [k for _, k in _HOME_GROUP_SPEC]
+        # st.tabs 는 매 rerun 시 모든 탭 본문이 실행되어(날씨·시장 JSON 등) NAS에서 매우 무거움.
+        # 배너(버튼) 또는 라디오 모두 **선택한 그룹만** `_HOME_GROUP_DISPATCH` 로 렌더 → 동일하게 가볍게 유지.
+        _HOME_GROUP_PICK_KEY = "home_group_pick"
+        if _HOME_GROUP_PICK_KEY not in st.session_state:
+            _legacy = st.session_state.get("home_group_pick_radio")
+            st.session_state[_HOME_GROUP_PICK_KEY] = (
+                _legacy if _legacy in group_labels else group_labels[0]
+            )
+        pick = str(st.session_state.get(_HOME_GROUP_PICK_KEY, group_labels[0]))
+        if pick not in group_labels:
+            pick = group_labels[0]
+            st.session_state[_HOME_GROUP_PICK_KEY] = pick
+
+        st.caption("아래 **배너**에서 섹션을 고르면 해당 내용만 로드됩니다.")
+        row1 = st.columns(4)
+        row2 = st.columns(3)
+        for i, (lbl, gk) in enumerate(zip(group_labels, group_keys)):
+            col = row1[i] if i < 4 else row2[i - 4]
+            with col:
+                if st.button(
+                    lbl,
+                    key=f"home_grp_btn_{gk}",
+                    use_container_width=True,
+                    type="primary" if pick == lbl else "secondary",
+                ):
+                    st.session_state[_HOME_GROUP_PICK_KEY] = lbl
+        pick = str(st.session_state[_HOME_GROUP_PICK_KEY])
+        key = group_keys[group_labels.index(pick)]
+        _HOME_GROUP_DISPATCH[key]()
 
 
 def _render_page_haksa() -> None:
     with _portal_page_card():
         st.header("📚 학사정보")
-        st.caption("명문대·입시 참고, 초등 학부모, 예비 중등 가이드입니다.")
-        ht1, ht2, ht3 = st.tabs(["🎓 명문대·입시", "📘 초등 학부모", "📙 예비 중등"])
+        st.caption("초등 → 중등 → 대학입시 순서로, 학년별 준비 로드맵과 지역/운동 가이드를 함께 봅니다.")
+        ht1, ht2, ht3 = st.tabs(["📘 초등", "📙 중등", "🎓 대학입시"])
         with ht1:
-            _render_tab_edu()
-        with ht2:
+            st.subheader("학년별 준비 로드맵 (초등)")
+            rows_elem = [
+                {"학년": "1~2학년", "학습": "읽기·쓰기·연산 자동화, 책 읽는 습관", "생활/정서": "등하교 루틴·수면시간 고정", "부모 체크": "담임 소통, 결석/지각 패턴 점검"},
+                {"학년": "3~4학년", "학습": "독해(비문학)·기본 영문장·수학 서술형 시작", "생활/정서": "친구관계·디지털 사용 규칙", "부모 체크": "과목별 약점 1개씩 보완 계획"},
+                {"학년": "5~6학년", "학습": "중등 선행은 최소화, 개념·독해·서술형 완성", "생활/정서": "자기주도 시간표(주간 계획)", "부모 체크": "중학교 배정/학군 일정 확인"},
+            ]
+            if pd is not None:
+                st.dataframe(pd.DataFrame(rows_elem), use_container_width=True, hide_index=True)
+            else:
+                st.table(rows_elem)
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("#### 🏫 지역 학원 선택 가이드")
+                st.markdown(
+                    "- 통학 20~30분 이내 우선\n"
+                    "- 반 정원/레벨테스트 기준 공개 여부\n"
+                    "- 월간 피드백(학부모 리포트) 유무\n"
+                    "- 숙제량보다 오답 관리 품질 확인\n"
+                    "- 4주 체험 후 유지/변경 판단"
+                )
+            with c2:
+                st.markdown("#### ⚽ 운동·체력 루틴")
+                st.markdown(
+                    "- 주 3회 이상 유산소(축구·수영·농구·줄넘기)\n"
+                    "- 자세·유연성(성장기 부상 예방) 포함\n"
+                    "- 학원 많은 날은 20분 걷기라도 유지\n"
+                    "- 취침 1시간 전 스크린 최소화\n"
+                    "- 평일 수면 9시간 내외 목표"
+                )
             _render_tab_elem()
-        with ht3:
+        with ht2:
+            st.subheader("학년별 준비 로드맵 (중등)")
+            rows_mid = [
+                {"학년": "중1", "학습": "수학 개념/오답노트, 영어 문법 기초", "생활/정서": "자습 시간 고정(하루 1.5~2h)", "부모 체크": "중간·기말 과목별 학습법 정착"},
+                {"학년": "중2", "학습": "과학·사회 서술형, 독해량 확대", "생활/정서": "스마트폰/게임 사용시간 관리", "부모 체크": "내신+비교과 균형(동아리/독서)"},
+                {"학년": "중3", "학습": "내신 안정화 + 고등과정 기초 연결", "생활/정서": "진로탐색(계열/학교유형)", "부모 체크": "고교 선택 일정·설명회 체크"},
+            ]
+            if pd is not None:
+                st.dataframe(pd.DataFrame(rows_mid), use_container_width=True, hide_index=True)
+            else:
+                st.table(rows_mid)
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("#### 🏫 지역 학원 운영 체크")
+                st.markdown(
+                    "- 과목별 강사 고정 여부\n"
+                    "- 내신 기간 보강/자습 관리 방식\n"
+                    "- 시험 후 오답 리포트 제공 여부\n"
+                    "- 학원 2개 이상 병행 시 과제 총량 확인\n"
+                    "- 성적보다 학습 습관 개선률을 같이 점검"
+                )
+            with c2:
+                st.markdown("#### 🏃 운동·생활 습관")
+                st.markdown(
+                    "- 주 3회 40~60분 운동(심폐+근지구력)\n"
+                    "- 장시간 앉는 날은 스트레칭 10분\n"
+                    "- 카페인 음료 늦은 시간 제한\n"
+                    "- 시험 2주 전에도 운동 강도만 낮춰 유지\n"
+                    "- 평일 수면 8시간 이상 목표"
+                )
             _render_tab_mid()
+        with ht3:
+            st.subheader("학년별 준비 로드맵 (대학입시)")
+            rows_adm = [
+                {"학년": "고1", "학습": "전과목 기본기·내신 체계 확립", "입시 준비": "희망 전공 탐색, 학생부 기록 습관", "부모 체크": "무리한 선행보다 결손 과목 제거"},
+                {"학년": "고2", "학습": "과탐/사탐 선택 확정, 모의고사 약점 보완", "입시 준비": "학생부 활동의 일관성(전공 연계)", "부모 체크": "수시/정시 비중 초안 설정"},
+                {"학년": "고3", "학습": "킬러보다 실수 관리·시간 배분", "입시 준비": "원서 전략(상향/적정/안정)과 일정 관리", "부모 체크": "컨디션·수면·멘탈 안정 지원"},
+            ]
+            if pd is not None:
+                st.dataframe(pd.DataFrame(rows_adm), use_container_width=True, hide_index=True)
+            else:
+                st.table(rows_adm)
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("#### 🧭 지역 입시/학원 정보 활용법")
+                st.markdown(
+                    "- 학교 진학부·교육청 설명회 일정을 먼저 확인\n"
+                    "- 입시컨설팅은 '기록 정리' 목적 중심으로 활용\n"
+                    "- 학원 선택 시 최근 2~3년 실적 공개 기준 확인\n"
+                    "- 합격사례보다 유사 성적대 전략을 우선 검토\n"
+                    "- 비용/환불/교재비 조건을 계약 전 확인"
+                )
+            with c2:
+                st.markdown("#### 🏋️ 고등 운동·컨디션 관리")
+                st.markdown(
+                    "- 주 3회 30~45분 유산소(집중력 유지)\n"
+                    "- 허리·목·어깨 보강(장시간 앉음 대비)\n"
+                    "- 시험기엔 강도 70%로만 유지\n"
+                    "- 수면 우선(최소 7시간, 가능하면 7.5~8시간)\n"
+                    "- 주간 1회 완전 휴식 블록 확보"
+                )
+            _render_tab_edu()
 
 
 def _render_page_learning_prep() -> None:
@@ -5356,34 +11305,1248 @@ def _render_page_learning_prep() -> None:
         _render_curated_link_blocks(LEARNING_PREP_SITES, key_prefix="learn")
 
 
-def _render_page_checklist() -> None:
+def _render_page_ybm_ecc_curriculum() -> None:
+    """YBM·ECC 재원 아동 가정 연계 참고 — 비공식 안내."""
     with _portal_page_card():
-        st.header("✅ 필수 체크리스트")
-        st.caption("체크 상태는 **이 브라우저 세션**에만 저장됩니다. 중요한 일정은 캘린더에도 적어 두세요.")
-        items = PARENT_CHECKLIST_ITEMS
-        n_chk_cols = 2
-        for row_start in range(0, len(items), n_chk_cols):
-            chunk = items[row_start : row_start + n_chk_cols]
-            cols = st.columns(n_chk_cols)
-            for j, row_item in enumerate(chunk):
-                idx = row_start + j
-                with cols[j]:
-                    st.checkbox(
-                        row_item["label"],
-                        help=row_item.get("hint"),
-                        key=f"parent_chk_{idx}",
-                    )
+        st.header("📘 YBM·어학 커리큘럼 · ECC 가정 가이드")
+        st.caption(
+            "**YBM 공식 페이지가 아닙니다.** 과정명·교재·레벨·원비는 **지점·연도**마다 다릅니다. "
+            "항상 **원·담임 선생님 안내**를 우선하세요."
+        )
+        st.warning(
+            "아래는 **ECC·유아·초등 영어**를 다니는 아이가 있는 가정을 위한 **교양용 정리**입니다. "
+            "입시·치료·학습장애 판단은 전문가에게 맡기세요.",
+            icon="⚠️",
+        )
+
+        y1, y2, y3, y4, y5 = st.tabs(
+            [
+                "🏫 ECC·영어 루틴",
+                "📚 집에서 연계하기",
+                "🔗 YBM·공부 자료",
+                "📈 레벨·평가 감각",
+                "💬 부모 마음가짐",
+            ],
+        )
+        with y1:
+            st.markdown(
+                """
+##### ECC 다닐 때 흔한 방향(일반론)
+- **노출 시간**: 주당 수업 시간만으로는 **부족**하다는 말이 자주 나옵니다. 집에서는 **짧게라도 매일** 듣기·말하기가 도움이 됩니다.
+- **말하기 부담**: 아이가 **틀려도** 일단 말하게 두기. 교정은 **한두 가지만** 짧게(전체 문장 고치기 반복은 기피로 이어질 수 있음).
+- **리듬**: 등원 전 **영어 노래·책 한 권**이 하루 시작을 고정해 주면 부모 스트레스가 줄어듭니다.
+- **숙제**: 원에서 내준 범위를 **끝내기 vs 이해하기** 중 무엇을 우선할지 선생님과 기준을 맞추면 갈등이 줄어듭니다.
+                """
+            )
+        with y2:
+            st.markdown(
+                """
+##### 집 연계 (바쁜 부모용)
+- **그림책**: 단어 몰라도 **그림 추측**하게 두기. 부모가 매번 한글로 설명만 하면 **영어 듣기 시간**이 줄어듭니다.
+- **팟캐스트·노래**: 이동·식사·취침 전 **5~10분**. 화면이 부담이면 **오디오만**.
+- **파닉스·스펠링**: 원에서 배우는 **책자·앱**이 있으면 그걸로 통일. **여러 체계를 동시에** 섞으면 아이가 헷갈릴 수 있습니다.
+- **한글 학습과의 균형**: 국어·수학 기초가 흔들리면 **영어만 늘어난 것처럼 보여도** 중장기로 부담이 될 수 있습니다. **수면·놀이 시간**을 지키는 것도 실력입니다.
+                """
+            )
+            st.info(
+                "**스크린 타임**은 가족 규칙을 정해 두고(식사·침대 위 금지 등), ECC 화상·앱이 있으면 **누적 시간**을 의식하세요.",
+                icon="💡",
+            )
+        with y3:
+            st.markdown(
+                """
+##### 공식·검색 시작점
+- [YBM 본사](https://www.ybm.co.kr/) — 프로그램·지점 안내는 **최신 공지**를 확인하세요.
+- [YBM 시사닷컴](https://www.ybmsisa.com/) — 어학·출판·강좌 정보가 함께 올라오는 경우가 많습니다.
+- **지점**: 전화·방문 시 **체험·레벨 테스트·교재**를 직접 확인하는 것이 가장 정확합니다.
+
+##### 무료·저가 보조(선택)
+- **공영 EBS 영어** · **지역도서관 영어도서** — 부담 없이 **노출량**만 늘리기 좋습니다.
+- **OPIC / 성인 영어**는 같은 앱의 **다른 메뉴**와 섞지 말고, 아이 학습은 **유아용 콘텐츠** 위주로 검색하세요.
+                """
+            )
+        with y4:
+            st.markdown(
+                """
+##### 레벨·평가를 볼 때
+- **동년배 비교**: SNS·학원 로비에서 듣는 ‘우리 아이 레벨’은 **참고**만. 커리큘럼이 다르면 숫자만으로 비교가 어렵습니다.
+- **정체 구간**: 한 레벨에 **오래 머무는 것**이 이상이 아닐 수 있습니다. **기초 체득**이 오히려 중요한 경우가 많습니다.
+- **말하기·듣기·읽기·쓰기** 균형: 시험 위주로 가면 **말하기**가 뒤처질 수 있어, 원의 목표와 **집에서 보완할 축**을 나눠 보세요.
+- **리포트**: 월간·분기 피드백이 있으면 **한 줄이라도** 메모해 두었다가 3개월 뒤와 비교하면 방향이 보입니다.
+                """
+            )
+        with y5:
+            st.markdown(
+                """
+##### 비교·불안 줄이기
+- **다른 가정과 비교**는 정보가 불완전할 때 특히 위험합니다. **우리 아이의 수면·식사·놀이**가 먼저인지 점검해 보세요.
+- **부모 영어**: 부모가 유창하지 않아도 **함께 듣기·따라 읽기**만으로도 태도 모델이 됩니다.
+- **번아웃**: 학원·알림장·준비물이 겹치면 **한 가지를 줄이는** 선택도 장기적으로 이득일 수 있습니다.
+- **같이 쉬는 날**: 가끔은 **영어 없는 하루**도 관계 회복에 도움이 됩니다. 다음 날 다시 리듬을 잡으면 됩니다.
+                """
+            )
+
+
+def _render_page_phishing_prevention() -> None:
+    """스미싱·피싱·보이스피싱 예방 — 공식 링크·상담 번호는 기관 공지 우선."""
+    with _portal_page_card():
+        st.header("🛡️ 피싱·보이스피싱 예방")
+        st.caption(
+            "최근에는 **문자(스미싱)·카톡·가짜 앱·AI 음성**까지 수법이 다양합니다. "
+            "**번호·신고 절차는 기관 공식 안내**가 정확합니다."
+        )
+        st.warning(
+            "이 페이지는 **법률·수사 조언이 아닙니다.** 큰 금액·협박이 있으면 **112** 등 **즉시 신고**하세요.",
+            icon="⚠️",
+        )
+
+        p1, p2, p3, p4 = st.tabs(
+            ["📌 최근 수법·트렌드", "✅ 예방 노하우", "🔗 공식 사이트·신고", "🆘 피해를 줄이려면"],
+        )
+        with p1:
+            st.markdown(
+                """
+##### 자주 바뀌는 수법(일반)
+- **스미싱**: 택배·대출·검찰·은행 사칭 **링크**를 문자로 보냄. 링크만 눌러도 **악성앱·피싱 페이지**로 연결될 수 있음.
+- **보이스피싱**: 수사기관·은행·자녀 사칭, **‘비밀 조사’** 를 핑계로 **계좌·OTP** 요구. **화상(딥페이크) 얼굴**까지 쓰는 사례가 늘고 있음.
+- **메신저·SNS**: 지인인 척 **급전·투자** 권유, **가짜 중고거래** 링크.
+- **가짜 앱**: 공식 스토어가 아닌 **APK·설치 파일**로 유도. **원격 제어·코인 지갑** 탈취 목적.
+- **투자·코인**: **수익 인증**·채팅방에서 **선입금** 유도. 정식 증권사·거래소와 **도메인·앱 이름**을 비슷하게 흉내.
+
+##### 공통 심리
+- **급함**: “지금 안 하면 동결·체포” — 시간을 벌어 **확인**하게 만드는 것이 핵심입니다.
+- **권위**: 제복·로고·공문 **이미지**는 쉽게 조작됩니다.
+                """
+            )
+        with p2:
+            st.markdown(
+                """
+##### 기본 원칙
+1. **링크를 누르지 않기** — 필요하면 **직접 공식 앱·홈페이지 주소**를 입력하거나 즐겨찾기 사용.
+2. **전화로 온 사람을 그대로 믿지 않기** — **끊고**, 명함·앱에 나온 **대표번호로 다시 걸기**(콜백).
+3. **OTP·공인인증서·비밀번호·계좌번호**를 전화·화면 공유로 알려주지 않기.
+4. **원격 제어(AnyDesk, TeamViewer 등)** 설치 요구 시 **거절** — 금융기관·수사기관이 이렇게 요구하지 않습니다.
+5. **앱은 공식 스토어**만. 문자·메일의 ‘업데이트’ 링크는 가짜인 경우가 많습니다.
+6. **가족·지인 급전 요청**은 **다른 채널**(직접 통화·만남)으로 한 번 더 확인.
+7. **투자 초대**는 **수익을 보장**하는 말이 나오면 의심. **냉정한 날**에 다시 읽기.
+8. **개인정보**는 ‘확인’이 아니라 **수집 목적**을 보고 최소한만.
+9. **스마트폰 OS·앱·백신** 최신 유지, **의심 문자는 차단·신고** 습관.
+10. **의심스러우면** 아무것도 하지 않고 **신고·상담 번호**부터 검색.
+
+##### 가정·노년 부모
+- **큰 금액 이체** 전에 **가족 암호 한 마디**로 확인.
+- 스피커폰으로 **함께 통화**해 주기(보이스피싱은 고립시키려 함).
+                """
+            )
+        with p3:
+            st.markdown(
+                """
+##### 주요 기관(링크는 공식 홈에서 최신 경로 확인)
+- [한국인터넷진흥원 KISA](https://www.kisa.or.kr/) — 스미싱·피싱 예방·신고 안내
+- [경찰청 사이버안전국](https://cyberbureau.police.go.kr/) — 사이버범죄 신고·유형별 대응
+- [금융감독원](https://www.fss.or.kr/) — 금융 사기·불법 대출·보이스피싱 관련 민원·안내
+- [KrCERT/CC 인터넷침해대응지원센터](https://www.krcert.or.kr/) — 침해사고 대응 정보
+
+##### 전화·신고(기억하기 쉬운 번호 — **세부는 기관 공지 우선**)
+- **112** — 긴급 범죄·신변 위협
+- **KISA 통합신고 118** — 인터넷·스미싱 등 **침해사고·불법 스팸** 상담·신고(운영 시간·절차는 KISA 안내)
+- **금융감독원 국번 없이 1332** — 금융 관련 사기·불법행위 신고·상담(공식 안내 확인)
+
+##### 검색 팁
+- 기관명 + **‘공식’** 으로 검색할 때 **광고 링크**와 **실제 도메인**을 구분하세요.
+                """
+            )
+        with p4:
+            st.markdown(
+                """
+##### 이미 링크를 눌렀거나 정보를 말한 뒤라면
+1. **당황해도** 곧바로 **통화 종료** — 추가 정보를 주지 않기.
+2. **금융**이면 **해당 은행·카드사 공식 번호**(카드 뒷면·앱)로 연락해 **이체·한도** 확인, 필요 시 **지급정지·계좌 동결** 요청.
+3. **원격 프로그램**을 설치했다면 **네트워크 끊기** → 프로그램 삭제 → **백신 검사** → **비밀번호 변경**(다른 기기에서).
+4. **앱 설치**를 했다면 **공식 스토어 외 APK**는 삭제 후 **공식 앱만** 재설치 검토.
+5. **증거 보존**: 문자·캡처·통화 녹취(법적 제한 있을 수 있음) — **신고 시 도움**이 될 수 있음.
+6. **2차 피해** 방지: 같은 비밀번호를 **다른 사이트**에 쓰고 있었다면 **순차적으로 변경**.
+
+##### 정서적 대응
+- 피해를 입었어도 **가해자는 범죄자**입니다. **혼자 해결하려 하지 말고** 가족·신고 창구에 알리는 것이 **추가 피해 예방**에 유리합니다.
+
+---
+**가족용**: 이 메뉴를 **부모님 폰 즐겨찾기**에 넣어 두고, **큰 돈이 나가기 전**에 함께 읽는 습관을 추천합니다.
+                """
+            )
+
+
+def _render_page_tech_industry() -> None:
+    """반도체·자동차 등 최신 산업 동향 요약 — 투자 권유 아님, 시점별로 뉴스 확인 필요."""
+    with _portal_page_card():
+        st.header("⚡ 최신 테크·산업 동향")
+        st.caption(
+            "반도체·자동차 등 **구조적 이슈**를 한곳에 모았습니다. **수치·실적·주가는 매일 변하므로** "
+            "아래 **뉴스·기관 링크**에서 최신 기사를 확인하세요."
+        )
+        st.warning(
+            "**투자·매매 조언이 아닙니다.** 관세·보조금·실적은 분기마다 바뀔 수 있습니다.",
+            icon="⚠️",
+        )
+
+        z1, z2, z3 = st.tabs(["🔲 반도체·전자", "🚗 자동차·모빌리티", "📰 뉴스·자료 출처"])
+        with z1:
+            st.markdown(
+                """
+##### 최근 몇 년간 반복되는 축(개념 정리)
+- **AI·데이터센터 수요**: 대규모 언어모델·추론 서비스 확산으로 **고성능 GPU·고대역폭 메모리(HBM)** 수요가 한동안 **업황을 이끄는 변수**로 자주 언급됩니다.
+- **첨단 패키징**: 미세 공정만큼 **칩렛·2.5D/3D 적층**이 성능·전력에서 중요해졌고, **OSAT·후공정** 비중이 커졌습니다.
+- **파운드리·공정**: 선단 로직은 **소수 파운드리** 중심으로 집중. **공정 미세화·수율**이 원가·납기에 직결됩니다.
+- **메모리**: DRAM·NAND는 **가격·재고 사이클**이 뚜렷해 **슈퍼사이클·침체**가 교대로 보도됩니다.
+- **지정학·수출 통제**: 반도체 장비·소재는 **국가별 규제·동맹 정책**에 민감합니다. **CHIPS법·수출 허가** 뉴스가 업체 실적에 직접 영향을 줄 수 있습니다.
+- **국내 산업**: 메모리·소재·장비·후공정에 **강점**이 있으나, **선단 로직**은 글로벌 경쟁이 치열합니다.
+
+##### 키워드로 뉴스 찾기
+`HBM`, `파운드리`, `칩렛`, `EUV`, `후공정`, `CXL`, `전력 사용량 데이터센터` 등.
+                """
+            )
+        with z2:
+            st.markdown(
+                """
+##### 전동화·하이브리드
+- **xEV**(BEV·PHEV·HEV) 비중은 지역·규제·충전 인프라에 따라 속도가 다릅니다. **순수 내연만** 고수하는 브랜드는 줄어드는 추세입니다.
+- **배터리**: **원재료·리사이클·충전 표준**이 비용·안전 이슈로 자주 다뤄집니다. 국내는 **배터리 3사·소재**와 **OEM 수출**이 함께 언급됩니다.
+- **보조금·규제**: 각국 **보조금 축소·관세**는 **차량 가격·수출입** 기사와 연결되어 나옵니다.
+
+##### 소프트웨어·주행
+- **ADAS**: 신차에서 **L2 전후(차로 유지·추종)** 가 대중화됐고, **완전 자율(로보택시)** 은 **도시·규제·책임** 이슈가 남아 있습니다.
+- **SDV(소프트웨어 정의 차량)**: **OTA 업데이트**·구독 기능·**전장 SW** 비중이 커지면서 IT·완성차 협업·분쟁 뉴스가 늘었습니다.
+- **스마트 팩토리·로봇**: 차체·배터리 조립에 **자동화·협동로봇** 도입 사례가 보도됩니다.
+
+##### 시장 구조
+- **중국 EV**의 가격·내수 경쟁, **미·유럽**의 관세·환경 규제가 **글로벌 완성차·부품사** 실적 기사에 자주 등장합니다.
+- 국내에선 **현대·기아** 글로벌 판매와 **국내 부품·소재** 동반 기사를 함께 보는 편이 구조 이해에 도움이 됩니다.
+                """
+            )
+        with z3:
+            st.markdown(
+                """
+##### 국내 매체·산업
+- [전자신문 ETNews](https://www.etnews.com/) — 반도체·디스플레이·전장 빠른 속보
+- [디지털타임스](https://www.dt.co.kr/) — IT·정책
+- [The Elec](https://thelec.net/) — 디스플레이·반도체 **영문·한글** 산업 뉴스
+- [대한무역투자진흥공사 KOTRA](https://www.kotra.or.kr/) — 해외 시장·규제 동향
+- [한국무역협회 KITA](https://www.kita.net/) — 수출·통상 통계·보고서
+- [한국산업기술진흥원 KIAT](https://www.kiat.or.kr/) — 산업기술 정책
+
+##### 글로벌·영문
+- [Reuters Technology](https://www.reuters.com/technology/) · [Bloomberg Technology](https://www.bloomberg.com/technology) — 거시·기업 뉴스
+- [IEEE Spectrum](https://spectrum.ieee.org/) — 기술 심화
+- [SemiEngineering](https://semiengineering.com/) — 반도체 공정·설계 산업
+
+##### 자동차 전문지
+- [Automotive News](https://www.autonews.com/) — 글로벌 완성차·부품
+- 국내: ETNews·매경·한경 등 **자동차·모빌리티** 섹션
+
+##### 기업 IR(실적·가이던스)
+- 개별 기업 **IR 페이지·분기 실적 발표**는 **공시·본사 자료**가 정확합니다. 이 포털은 **링크만 안내**합니다.
+
+---
+**활용 팁**: 같은 키워드로 **한국어·영문**을 번갈아 검색하면 **시차** 있는 이슈(미국 규제·아시아 공급망)를 같이 볼 수 있습니다.
+                """
+            )
+
+
+def _render_page_psychology() -> None:
+    """일상에 도움이 되는 심리학 요약 — MBTI·인식·부동산·종교. (전문 상담·진단 대체 아님)"""
+    with _portal_page_card():
+        st.header("🧠 심리학 · 생각의 도구")
+        st.caption(
+            "아래는 **입문·참고용 정리**입니다. 정신건강의학적 진단·약물·심층 상담은 전문가를 찾으세요."
+        )
+        st.warning(
+            "MBTI·유형 테스트는 **성격의 일부 측면**만 건드립니다. 중요한 결정(채용·임상)의 유일한 근거로 쓰기 어렵습니다.",
+            icon="⚠️",
+        )
+
+        t1, t2, t3, t4, t5 = st.tabs(
+            ["🅼 MBTI", "🛸 우주·외계 인식", "🏠 부동산 심리", "🕯️ 종교·믿음", "📚 더 넣으면 좋은 것"],
+        )
+        with t1:
+            st.subheader("MBTI란 무엇인가")
+            st.markdown(
+                """
+- **출발점**: 융의 심리 유형 이론을 바탕으로 만든 **자기보고식 설문**에서 네 글자 유형(예: INTJ)을 붙이는 도구입니다. **학문적으로 ‘완전한 성격검사’로 인정받지는 않습니다.**
+- **네 축(일반적 이해)**: 에너지 방향(E/I), 인식(S/N), 판단(T/F), 생활양식(J/P) — 제품·문항 버전에 따라 세부 정의가 조금씩 다릅니다.
+- **잘 쓰는 법**: ‘나와 대화할 때의 경향’을 **말의 출발점**으로 삼기, 팀에서 역할·소통 스타일을 **가볍게** 나누기.
+- **조심할 점**: 유형에 **낙인(stereotype)** 을 붙이거나, 채용·승진의 **단일 필터**로 쓰면 오류와 불공정이 커집니다. 성격의 많은 부분은 **Big Five(성실성·외향성 등)** 같은 다른 틀로도 설명됩니다.
+                """
+            )
+            st.info(
+                "같은 유형이라도 문화·나이·상황에 따라 행동은 크게 달라질 수 있습니다. **유형 한 줄로 사람을 단정하지 않기**가 실무에서 가장 안전합니다.",
+                icon="💡",
+            )
+        with t2:
+            st.subheader("‘우주인’·UAP을 둘러싼 인식 심리")
+            st.markdown(
+                """
+- **패턴 탐지**: 불확실한 빛·소리에서 **의미**를 찾으려는 경향은 인간에게 흔합니다. 때로는 **거짓 양성**(본 것은 맞는데 해석이 빗나감)이 생깁니다.
+- **의인화**: 자연 현상에 **의도·주체**를 붙이기 쉬운 인지 편향이 있습니다. 이는 ‘미신’이라기보다 **뇌의 기본 작동**에 가깝습니다.
+- **정보 환경**: 반복 노출·같은 믿음의 커뮤니티는 **확증**을 키울 수 있습니다. 반대로 과학 공동체는 **재현·관측 규칙**으로 주장을 거르는 편입니다.
+- **존중과 경계**: 타인의 경험담을 **듣는 태도**와, 주장을 **증거 수준에 맞게** 평가하는 것은 별개입니다. 심리학은 “그 믿음이 **어떤 필요**(안전·신비·소속)와 연결되는지”를 이해하는 데 도움을 줄 수 있습니다.
+                """
+            )
+            st.caption(
+                "이 섹션은 **외계 생명의 존재 여부를 판정**하지 않습니다. **인지·정서·사회적 요인**을 정리한 참고용입니다."
+            )
+        with t3:
+            st.subheader("부동산 결정을 흔드는 심리")
+            st.markdown(
+                """
+- **앵커링**: 처음 본 가격·전세가이 **기준점**으로 남아 다음 판단을 당깁니다. 비교 매물을 **여러 번·다양한 조건**으로 보는 게 완화에 도움이 됩니다.
+- **손실 회피**: ‘오르기 전에’에 반응하기 쉬워 **FOMO(놓칠 공포)** 가 커질 수 있습니다. 반대로 **‘내가 지는 상황’** 을 과하게 피하려 할 수도 있습니다.
+- **떼 행동**: 많은 사람이 움직일 때 **안전하다고 느끼는 착각**(정보가 같다는 뜻은 아님)이 생깁니다.
+- **시간 압박**: ‘오늘 계약’ 압박은 **인지 여유**를 줄입니다. **하룻밤 규칙**(큰 금액은 잠깐 떼어 두고 다시 읽기)이 실수를 줄이는 경우가 많습니다.
+- **프레이밍**: ‘투자’ vs ‘내 집’ 같은 **말의 틀**이 동일 숫자를 다르게 느끼게 합니다. **숫자(금리·관리비·세금·현금흐름)** 를 표로 정리해 두면 덜 흔들립니다.
+                """
+            )
+        with t4:
+            st.subheader("종교·영성을 바라보는 심리학")
+            st.markdown(
+                """
+- **종교 심리학**은 특정 교리의 **참·거짓을 판정**하는 학문이 아니라, 믿음·의식·공동체가 **마음·행동·건강**에 어떤 역할을 하는지 연구합니다.
+- **의미·소속**: 불확실한 시기에 **해석 틀**과 **관계 네트워크**를 제공할 수 있습니다.
+- **대처(coping)**: 기도·명상·예배는 어떤 이에게는 **정서 조절** 경로가 됩니다(개인차 큼).
+- **건강한 경계**: 신념이 **타인의 자유를 침해**하지 않는지, **금전·권력**이 과도하게 얽히지 않는지 스스로 점검하는 시각도 심리적으로 중요합니다.
+- **다른 관점**: 무신론·불가지론을 포함해, **의미 찾기**의 경로는 사람마다 다를 수 있습니다.
+                """
+            )
+            st.caption(
+                "신앙 선택은 개인의 영역입니다. 여기서는 **심리학적 관찰 각도**만 다룹니다."
+            )
+        with t5:
+            st.subheader("이 메뉴에 더 넣으면 좋은 주제(제안)")
+            st.markdown(
+                """
+- **인지 왜곡 목록**: 비관·전부·아니면 전무 등 **자동 사고**를 알아채는 치트시트.
+- **수면·스트레스**: 수면 위생, 호흡·HRV 입문(의학적 조언은 전문의).
+- **노년·은퇴 전환**: 역할 상실·우울 예방을 **생활 리듬**으로 다루기.
+- **소비 심리**: 할인·할부·구독이 **지각된 가치**를 어떻게 바꾸는지.
+- **디지털·주의력**: 스크롤·알림이 **작업 기억**에 미치는 영향(개인 실험 팁).
+- **부모·자녀**: 애착·칭찬·경계 설정을 **발달 단계**에 맞게(교양용).
+
+원하시면 위 중 하나를 골라 **다음 탭**으로 나누어 넣을 수 있습니다.
+                """
+            )
+
+
+def _render_page_cooking() -> None:
+    """집밥·레시피 참고 — 영양·알레르기는 개인별로 확인."""
+    with _portal_page_card():
+        st.header("🍳 요리 · 레시피 & 집밥")
+        st.caption(
+            "**흐름·비율·습관** 위주로 길게 모았습니다. 분량·열량은 가정마다 다르니 **당·혈압·알레르기**는 전문가와 조절하세요."
+        )
+        st.warning(
+            "생식·장시간 상온 보관·지저분한 도마는 **식중독 위험**이 있습니다. **손 씻기·교차 오염**을 습관화하세요.",
+            icon="⚠️",
+        )
+
+        r1, r2, r3, r4, r5, r6, r7 = st.tabs(
+            [
+                "🍚 밥·죽·육수",
+                "🍲 국·찌개·찜",
+                "🍳 볶음·구이·면",
+                "♨️ 전자·압력·에어",
+                "🧊 밀프렙·위생",
+                "🧂 양념·비율",
+                "🔗 채널·표",
+            ],
+        )
+        with r1:
+            st.markdown(
+                """
+##### 밥
+- **쌀 씻기**: 찬물로 **3~4회** 정도까지 흐려짐이 줄면 충분한 경우가 많습니다. **과도한 문지르기**는 영양 손실 논쟁이 있으니 가정 룰로 정하기.
+- **불리기**: 20~30분 불리면 **알이 고와** 보이는 경우가 많음. 다이어트 쌀은 **물 비율** 따로 확인.
+- **밥칸 눈금**은 쌀 종류·불림에 따라 조정. **처음은 눈금보다 약간 적게** 넣어 밍밍함을 막고, 다음 번에 보정.
+- **현미·잡곡**: 물·시간이 더 필요한 편. **압력 밥솥** 프리셋 활용.
+
+##### 죽·스프
+- **죽**: 불린 쌀 + 많은 물, **저어가며** 눌러붙음 방지. 냉동 해산물은 **완전히 익히기**.
+- **육수 베이스**: 멸치·다시마 **불린 물**부터 끓이면 깊이. **다시다·액상**은 **나트륨** 라벨 확인.
+                """
+            )
+        with r2:
+            st.markdown(
+                """
+##### 국·찌개 공통
+- **간 순서**: **고춧가루·국간장·된장** 등은 끓는 중간에 나눠 넣고 마지막에 **소금**으로 미세 조정하면 덜 실패.
+- **채소 순서**: 뿌리(무·감자·양파) → 단단한 버섯 → 부드러운 채소·두부 → **잎**은 끝.
+- **고기**: 냄새 줄이려면 **미리 데치기**·**생강·맛술** 등 가정 룰. **기름기 많은 부위**는 국물이 무거워질 수 있음.
+
+##### 찌개·찜
+- **된장찌개**: 된장은 **체에 걸러** 덩어리 줄이기. **두부**는 끝에 넣어 부서짐 감소.
+- **김치찌개**: 익은 김치+국물 일부+**설탕/올리고당** 소량으로 산미 밸런스.
+- **찜**: **적은 액체·강한 중불→약불**로 증기 활용. **전자렌지 찜기**는 뚜껑 화기 확인.
+                """
+            )
+        with r3:
+            st.markdown(
+                """
+##### 볶음
+- **팬 온도**: 물방울이 **타닥**하면 대체로 충분히 예열된 편(종류별 차이 있음).
+- **고기 볶음**: **전분·간장 밑간** 후 한 겹으로 펼쳐 **겉만 익히고** 채소 합류.
+- **채소 볶음**: 수분 많은 채소는 **소금을 끝**에 두면 물이 덜 나올 때가 많음.
+
+##### 구이·튀김
+- **튀김**: 기름 온도 **너무 낮으면 기름 먹고**, 너무 높으면 겉만 탐. **한 번에 너무 많이** 넣지 않기.
+- **에어프라이**: **예열** 여부는 기종별. **한 겹**·**중간 뒤집기**. **종이 호일**은 기종·설명서 확인(화재 위험).
+
+##### 면·분식
+- **파스타**: 면수 **한 국자**로 소스 농도. **알단테**는 패키지보다 **1분 일찍** 꺼내 맛보기.
+- **국수**: 면 건져 **찬물 헹굼** 여부는 면 종류·취향.
+- **볶음밥**: 밥을 먼저 **수분 날리기** → 재료 → **간장은 끝**에 색 맞추기.
+                """
+            )
+        with r4:
+            st.markdown(
+                """
+##### 전자레인지
+- **덮개**로 수분 유지. **가운데가 안 익으면** 링 모양 배치·중간 섞기.
+- **랩** 사용 시 **화기 표시** 있는 제품만, **증기 구멍** 뚫기.
+
+##### 압력솥·전기압력
+- **밸브·패킹** 청소 습관. **최대 용량선** 넘지 않기. **빠른 출기** 후 뚜껑 열기.
+- **고기·감자**는 시간 단축에 유리. **죽 모드**는 넘침 주의.
+
+##### 에어프라이어
+- **바스켓 용량** 넘치면 공기 순환 실패. **기름 없는 요리**도 표면에 **한 방울** 기름이 마이야르에 도움될 수 있음.
+- **냉동 만두**: 시간보다 **중간 확인**이 안전.
+                """
+            )
+        with r5:
+            st.markdown(
+                """
+##### 밀프렙
+- **3일 이내** 먹을 것만 손질. **샐러드 채소**는 건조·키친타올 후 밀폐.
+- **육류 소분**: **납작**하게 눌러 **해동 속도**↑. 라벨에 **날짜·메뉴** 적기.
+- **냉동**: **급속 냉동** 후 장기 보관. **재냉동**은 품질·안전 모두 불리.
+
+##### 위생·교차 오염
+- **도마·칼**: 생고기용·채소용 **분리**. 흠 있는 플라스틱 도마는 **세균** 논의 있음 → 주기 교체.
+- **손·수세미**: 생선·닭 다룬 뒤 **비누**로 손. **행주**는 자주 끓이거나 교체.
+- **상온**: **2시간 룰**(기온 높을수록 짧게)을 가정 룰로.
+- **달걀**: **완전히 익히기**(특히 어린이·임산부 가정에서 보수적으로).
+                """
+            )
+        with r6:
+            st.markdown(
+                """
+##### 기본 비율(출발점)
+- **초간장(무침·샐러드)**: 간장:식초:설탕·올리고당 ≈ **2:1:1**부터 시작해 취향 조절.
+- **고추장 양념**: 고추장+다진 마늘+참기름+설탕/올리고당+**물·식초**로 농도.
+- **간장 베이스 볶음**: 간장+설탕+마늘+참기름+후추 — **타지 않게** 불 조절.
+
+##### 육수·국물
+- **멸치**: 머리·내장 **적당히 제거**하면 비린내 감소. **다시마**는 끓기 직전·짧게(과다 우려면 끈적).
+- **팔팔 끓인 뒤** 거품 걷기 → 맑은 국물.
+
+##### 계량
+- **종이컵·숟가락**으로 재는 법을 한 번 표준화해 두면 **엄마표 레시피** 복제가 쉬움.
+- **오븐·에어프라이**는 기종별로 온도 편차 큼 → **레시피보다 5~10℃ 낮게** 시작해 보정.
+                """
+            )
+        with r7:
+            st.markdown(
+                """
+##### 검색·채널
+- [만개의레시피](https://www.10000recipe.com/) — 검색량·후기 많은 **집밥**
+- [네이버 요리·쿡쿡TV](https://tv.naver.com/) — 영상
+- 유튜브: **백종원·쿡캐스트·1분요리** 등 — **화력·기종** 차이로 실패하면 **온도·시간만** 조정해 재시도
+
+##### 저작·저장
+- 블로그·책 레시피 **전문 복제**는 권리 문제가 될 수 있음. **본인 가정용 메모**로만 활용 권장.
+
+##### 온도·시간(참고)
+| 음식 | 중심 온도 감각 |
+|------|----------------|
+| 닭고기 | 중심 **75℃ 전후** 완전 익힘(가정에서는 절단 확인) |
+| 돼지고기 | **회색·육즙 맑음**까지 |
+| 소고기 스테이 | 취향에 따라 **희귀~웰던** (임신·어린이는 완숙 권장) |
+| 계란 흰자 | 완고형 **응고** |
+                """
+            )
+        st.info(
+            "**알레르기** 표시 제품·**당·나트륨** 관리는 가정·의사와 상담하세요.",
+            icon="💡",
+        )
+        _recipe_demo = [
+            {"요리": "된장찌개", "핵심": "육수→뿌리 채소→된장 풀기→두부·호박→간"},
+            {"요리": "김치찌개", "핵심": "익은 김치+국물+돼지/참치→설탕으로 산미·맵기 조절"},
+            {"요리": "계란볶음밥", "핵심": "밥 수분 날림→재료→간장 마지막·불 세게"},
+            {"요리": "간장 계란밥", "핵심": "밥 위에 계란·버터·간장·참기름·깨"},
+            {"요리": "닭볶음탕", "핵심": "닭 데치기→감자 당근→고추장·양념 졸이기"},
+            {"요리": "라면 업그레이드", "핵심": "물 적게·우유·치즈·파·계란 타이밍"},
+            {"요리": "두부조림", "핵심": "키친타월 물 제거→간장 베이스 한소끔"},
+            {"요리": "감자조림", "핵심": "감자 모서리·전분 가라앉힌 뒤 조리"},
+        ]
+        st.subheader("한 끼 레시피 뼈대(요약)")
+        if pd is not None:
+            st.dataframe(pd.DataFrame(_recipe_demo), use_container_width=True, hide_index=True)
+        else:
+            for row in _recipe_demo:
+                st.markdown(f"**{row['요리']}** — {row['핵심']}")
+
+
+def _render_page_tools_workshop() -> None:
+    """공구·드릴·작업장 안전 — 비전문가 DIY 참고."""
+    with _portal_page_card():
+        st.header("🔧 공구 · 작업장 & 드릴")
+        st.caption(
+            "**취미·가정 수리** 위주입니다. 전기·배관·구조 보강은 **자격·법규**가 있을 수 있으니 전문가에게 맡기세요."
+        )
+        st.warning(
+            "**보호구·집진·환기** 없이 목재·금속 가공은 사고·질병 위험이 큽니다. **사용 설명서**를 먼저 읽으세요.",
+            icon="⚠️",
+        )
+
+        w1, w2, w3, w4 = st.tabs(["🔩 드릴·비트", "🪚 작업장·집진", "⚡ 안전·전기", "🔗 정보·브랜드"])
+        with w1:
+            st.markdown(
+                """
+##### 드릴 종류
+- **드라이버(임팩트)**: 나사 조임·풀기. **토크 조절**이 있으면 목재·가구에 유리.
+- **해머드릴·로터리**: **콘크리트·벽체** 천공 시. 집에서는 **배관·전선** 위치 확인(탐지기·도면) 후 작업.
+- **전동드릴(클러치)**: 목재·금속 **소구경** 구멍. **속도·토크** 단계 조절.
+
+##### 비트·날
+- **십자(+)·일자(-)** 나사에 맞는 비트. **미끄럼** 줄이려면 압력을 축으로.
+- **목재용 스파이럴 비트**: 입문용. **금속용 HSS·코발트**는 재질 표기 확인.
+- **홀쏘**: 큰 구멍. **뒤집어서** 마무리하면 턱 덜 남는 경우가 많음.
+
+##### 사용 습관
+- **재료 고정**: 바이스·클램프로 **손가락이 회전부에서 멀게**.
+- **선택 RPM**: 목재는 너무 빠르면 **그을음**, 금속은 **냉각·낮은 RPM**이 도움되는 경우 많음.
+- **배터리**: 리튬 배터리 **고온·충전 직후** 보관 주의. **2차 전지** 분리 수거 규정 준수.
+                """
+            )
+        with w2:
+            st.markdown(
+                """
+##### 작업대
+- **높이**: 팔꿈치 각도가 편한 높이가 장시간 작업에 유리. **다리 받침**으로 높이 보정.
+- **조명**: 그림자 안 생기게 **측면+상면** 조명. **색온도** 맞추면 실색 판단 쉬움.
+- **정리**: 공구는 **윤곽 그리기**(바닥 실루엣)로 제자리 습관.
+
+##### 집진·환기
+- **목재·MDF** 먼지는 **호흡기** 장시간 노출 시 건강 이슈. **집진기·흡입 마스크(KF94/FFP 등)** 병행.
+- **금속 연마** 스파크는 **인화물** 멀리. **소화기** 근처에 두기.
+
+##### 소음·이웃
+- 아파트는 **시간대·진동** 규약 확인. **고무 매트**로 진동·소음 완화.
+                """
+            )
+        with w3:
+            st.markdown(
+                """
+##### 전기
+- **연장선**: 정격 **전류(A)·길이**. 여러 고출력 공구 **동시 사용** 자제.
+- **누전차단기(ELCB)** 동작 확인. **젖은 손**·젖은 바닥에서 전동공구 금지.
+- **배터리 충전기**: 통풍·가연물 멀리. **야간 무인 충전**은 설명서 권장 범위 내.
+
+##### 보호구
+- **안전경**: 파편·먼지. **방진 마스크**는 작업 종류에 맞게.
+- **청력**: 그라인더·로터리는 **귀마개** 권장.
+- **장갑**: 회전 공구에 **장갑 끼고 만지면 위험**한 경우 있음 — 설명서 확인.
+
+##### 응급
+- **출혈**: 압박·거상. **깊은 상처**는 병원.
+- **화상·스파크**: **물로 식히기** vs **기름 화재**는 다른 대응 — 소화기 **종류** 확인.
+                """
+            )
+        with w4:
+            st.markdown(
+                """
+##### 국내에서 정보 찾기
+- **유튜브**: `DIY 목공`, `전동공구 리뷰` — **채널별 안전 수준**이 다름. 댓글에 **부작용**도 읽기.
+- **대형마트·철물**: 비트·날 **규격**을 손에 잡고 비교.
+- 브랜드 예시(선호에 따라): **보쉬·마끼다·디월트·히타치(하이코키)·미워키** 등 — **AS·배터리 호환**을 구매 전에 확인.
+
+##### 책·커뮤니티
+- **목공 입문서**는 **수공구→전동** 순으로 읽으면 이해가 빠름.
+- **클리앙·네이버 카페** DIY — **사진·도면** 있는 글을 우선 참고.
+
+---
+**원칙**: 처음에는 **작은 폐목·저렴한 재료**로 연습하고, **만족할 때** 가구 본 작업에 들어가면 비용·스트레스가 줄어듭니다.
+                """
+            )
+
+
+def _render_page_farming_hwaseong() -> None:
+    """경기 화성시 기준 소규모 과수·채소·하우스 — 월별 참고(미세 기후·품종에 따라 조정)."""
+    _hwaseong_monthly_md: dict[int, str] = {
+        1: """
+##### 1월 — 한겨울 · 휴면 & 저장
+- **기후(화성권 감각)**: 서리·건조한 바람. **낮 기온**이 잠깐 올라도 이슬·결로로 병이 번질 수 있음.
+- **사과**: 낙엽 정리, **동계 전정** 시작(가지 방향·내부 충실). 상처에는 **살균 도포** 습관. **설해** 대비 뿌리 부담 줄이기(퇴비 과다 피하기).
+- **블루베리**: 휴면기. **화분·밭** 배수구 막힘 점검. **산도(pH)** 측정 계획(봄에 유황·피트믹스 보정).
+- **감자·저장**: 저장 감자 **싹·쑥음** 건지기. 동결·습기 피해 확인.
+- **고구마**: 저장고 **통풍·10~15℃ 부근** 유지 노력. 상한 것은 즉시 분리.
+- **토마토**: 씨앗 주문·품종 결정(대과/방울, 착색). **육묘**는 남쪽 창가·LED 보조등으로 2월~초 파종 준비.
+- **하우스(1동)**: **결로** 방지(환기 틈·바닥 습기). 난방 사용 시 **일산화탄소·화재**. 비닐·골조 **누수** 점검.
+        """,
+        2: """
+##### 2월 — 입춘 전후 · 준비 본격화
+- **사과**: 전정 마무리. **해충 방제**는 유인제·도장 시기 **품목별** 확인(지역 농업기술센터).
+- **블루베리**: 기온 오르면 **관수** 시작. **가지치기**(너무 무성하면 열매 품질↓). **멀칭** 보충 계획.
+- **감자**: **종薯 준비**·싹 띄우기(어두운 곳). **정식은 3월말~4월** 노지 기준(서리 주의).
+- **고구마**: 육묘용 **고랑** 정비, 지력 보강. (모종은 보통 5월 전후 이식)
+- **토마토**: **파종**(실내) 시작하는 분들 많음. **과습** 금지, **배수 좋은 상토**.
+- **하우스**: **토양 소독**(태양열·유기농 허용 약제) 시즌. 침대분 정리.
+        """,
+        3: """
+##### 3월 — 봄 기운 · 정식 준비
+- **사과**: **화수가지** 정리, 꽃눈 확인. **병해** 예방 도장 1차(품목·등록약은 **농약 판매점·지도**).
+- **블루베리**: **새순** 나오기 시작. **pH 4.5~5.5** 목표로 유황·피트 혼합(토양검사 뒤). **새 방지망** 수리.
+- **감자**: **땅 얼음** 풀리면 **김·거름** 넣고 **정식**(두둑·행간). **이식 깊이** 일정하게.
+- **고구마**: **육묘상** 비닐하우스·작은 하우스에서 **모종 키우기** 시작하는 경우 많음(온도 25℃ 전후 관리).
+- **토마토**: **육묘** 커지면 **펜치**·**본박** 준비. **저온 스트레스**에 약한 품종은 이식 늦추기.
+- **하우스**: **주간 환기** 늘리고 **야간 보온** 유지. **초기 병** 예방에 과습 금지.
+        """,
+        4: """
+##### 4월 — 서리 주의 · 본격 영농
+- **사과**: **화기**, **잎기** 전 **살균**. **꽃눈 냉해** — 이슬·바람 강한 날 **스모크·관수** 등 지역 기법 참고.
+- **블루베리**: **개화 전** 병해 1차. **꽃가루 매개** 위해 벌·곤충 활동 관찰.
+- **감자**: **김 매기기**·**북주기**. **감자역병** 예방: 침수 금지, **종薯** 건전하게.
+- **고구마**: 모종 **육묘** 관리(잎 마름·과습). 노지 이식은 **5월 중순 이후**가 안전한 경우 많음.
+- **토마토**: **상토 이식**·**대목** 사용 여부. **노지 정식**은 **최종 서리 끝난 뒤**(화성권 **4월 말~5월 초** 대략, 매년 예보 확인).
+- **하우스**: **주간 온도** 급상승 — **측막·창문** 환기로 **30℃ 넘김** 방지. **진딧물** 발생 시 초기 차단.
+        """,
+        5: """
+##### 5월 — 성장 가속 · 토마토·고구마
+- **사과**: **적과 1차**(과밀 제거), **나방류** 유인·포획 시작. **물 관리**(가뭄·과습 모두 주의).
+- **블루베리**: **초기 착색** 들어가는 품종은 **새·벌** 방어. **관수** 균일(과습은 뿌리 질병).
+- **감자**: **꽃·줄기** 관찰. **조생종**은 **6월 초** 수확 가능. **병반** 나오면 잎 제거·약제.
+- **고구마**: **모종 이식**(노지). **이식 직후** 건조·바람에 말라 죽지 않게 **관수**. **마운드** 형성.
+- **토마토**: **지주·유인**, **아랫잎** 제거로 통풍. **흑반병** 예방: 잎 물 안 뭍히기, **과습 금지**.
+- **하우스**: 토마토·기타 **채소 풀타임** — **일출 전 환기**로 이슬 말리기.
+        """,
+        6: """
+##### 6월 — 장마 전후 · 블루베리·감자
+- **사과**: **여름 전정**(생육 과다 가지), **병해** 살포 주기. **가지 끝** 햇빛 들게.
+- **블루베리**: **본수확**. **아침 일찍** 따면 신선도↑. **수확 후** 냉장·판매·가공 계획.
+- **감자**: **감자 덩이리균병**·**역병** 주의 — **침수 절대 금지**. **잎 마름** 후 **7~10일** 뒤 캐기도 방법.
+- **고구마**: **순 정리**(너무 무성하면 지하 덩이로 양분). **덩굴** 방향 유인.
+- **토마토**: **첫 수확**. **일괄 착색** 위해 **하엽** 정리. **칼슘 결핍**(끝부 패임)이면 **엽면시비** 검토.
+- **하우스**: **장마** 전 **배수로**·**비닐 위 물 고임** 점검. **습도** 높으면 **곰팡이성 병** 폭발.
+        """,
+        7: """
+##### 7월 — 무더위 · 병충해 최성기
+- **사과**: **여름병**·**진딧물**·**응애** 모니터링. **살포**는 **이슬 말린 뒤**·**저녁** 위주(약제 지침).
+- **블루베리**: 후기 품종 **수확**. **가지치기** 계획(너무 무거운 가지 줄이기).
+- **감자**: **캐기** 본격(품종별). **그늘 건조** 후 저장.
+- **고구마**: **덩이 비대기** — **건조·일조** 중요. **가뭄** 시 깊이 관수.
+- **토마토**: **고온**에서 **과실 부작**·**줄기 멈춤** — **그늘막**·**미스트**(과습 주의). **물은 아침**.
+- **하우스**: **환기·차광막**·**양액**(채택 시) EC 관리. **열사병** 작업자 주의.
+        """,
+        8: """
+##### 8월 — 폭염 · 토마토·고구마 관건
+- **사과**: **가지** 햇빛 들게 유지. **낙과**·**병과** 제거. **가을 전정** 준비.
+- **블루베리**: 수확 마무리. **휴식기** 들어가기 전 **관수** 리듬 조절.
+- **감자**: 대부분 수확 끝. **밭** 휴식·녹비 작물 파종 검토.
+- **고구마**: **덩이 비대** 최종 구간. **덩굴** 지나치면 **잘라** 양분 아래로.
+- **토마토**: **고온 장해** — **방울토마토**는 비교적 강하나 **대과**는 **떨어짐** 많음. **적과**·**그늘**.
+- **하우스**: **태풍** 대비 **비닐·밴드** 점검. **야간 환기**로 온도 낮추기.
+        """,
+        9: """
+##### 9월 — 가을 준비 · 사과·고구마
+- **사과**: **수확 시기**(품종·당도·색). **종이봉지** 쓰는 경우 **안쪽 습기** 확인. **낙과** 방지 병해.
+- **블루베리**: **가을 전정**(과도하게 무성한 것만). **유기질** 멀칭 추가(겨울 뿌리 보호).
+- **감자**: 저장지 **소독**·**통풍**. 다음 해 **작물 순환** 계획.
+- **고구마**: **캐기** 시작(서리 전 **덩이 비대** 확인). **상처 난 것**은 먼저 소비.
+- **토마토**: **말기** — **청경**·**잼**·**건조** 활용. **병 잎** 제거 후 **퇴비화**.
+- **하우스**: **가을 작물**(상추·시금치 등) 전환 준비. **야간 기온** 낮아지면 **보온** 준비.
+        """,
+        10: """
+##### 10월 — 수확 · 저장 & 낙엽기
+- **사과**: **본수확**. **저장**은 **통풍·낮은 습도**·품종별. **상처 과일**은 먼저.
+- **블루베리**: **낙엽** 정리(병원균 줄이기). **멀칭** 두껍게(동해). **새 가지** 색 진하게 전까지 기다리기.
+- **감자**: 저장 중 **싹**·**쑥음** 점검. 다음 해 **두둑** 위치 바꾸기.
+- **고구마**: **수확 완료** 목표(중상순 이전). **햇빛·바람**에 **후숙** 후 저장 맛↑.
+- **토마토**: **끝물** 수확·덩군 제거. **토양** 태양열·유기물로 회복.
+- **하우스**: **비닐·골조** 보수. **겨울작물** 파종(상추·시금치 등).
+        """,
+        11: """
+##### 11월 — 월동 준비
+- **사과**: **낙엽** 청소·소각(병원균). **겨울 살포** 일정(지역 병해에 따라). **설주** 보호.
+- **블루베리**: **수분** 적당히(가뭄 시). **토양** 덮기(멀칭). **새** 그물 정비.
+- **감자**: 저장고 **온도** 낮추기(빛 차단). **종薯** 확보.
+- **고구마**: 저장 **온도 12~15℃** 부근 목표. **상한 것** 제거.
+- **토마토**: 시설 내 **마지막** 수확·정리. **토양 개량** 자재 준비.
+- **하우스**: **보온재**·**이중 비닐**·**난방** 점검. **결로** 심한 구간 **환기 설계** 재검토.
+        """,
+        12: """
+##### 12월 — 정리 · 내년 설계
+- **사과**: **동계 전정**·**해충 유인목** 설치. **도장** 계획(날씨 창).
+- **블루베리**: **휴면** 깊어짐. **토양 검정** 의뢰·**시비 설계**.
+- **감자**: 내년 **품종·면적** 결정. **종薯** 발주.
+- **고구마**: 저장 상태 점검. **육묘** 시설 청소.
+- **토마토**: **씨앗**·**품종** 리스트. **육묘 시설** 소독.
+- **하우스**: **1년 치 기록**(온도·병해·수확량) 정리 — 내년 개선점 도출.
+        """,
+    }
+    _hwaseong_overview_rows = [
+        {"월": "1월", "사과": "동계 전정·설해", "블루베리": "휴면·산도계획", "감자": "저장 점검", "고구마": "저장", "토마토": "씨 주문", "하우스": "결로·난방"},
+        {"월": "2월", "사과": "전정 마무리", "블루베리": "가지·멀칭", "감자": "싹띄우기", "고구마": "육묘 준비", "토마토": "파종 시작", "하우스": "토양 소독"},
+        {"월": "3월", "사과": "화수·병 예방", "블루베리": "pH·새망", "감자": "정식 준비", "고구마": "육묘", "토마토": "육묘", "하우스": "환기·병방제"},
+        {"월": "4월", "사과": "냉해·살균", "블루베리": "개화 전", "감자": "정식", "고구마": "모종", "토마토": "노지 정식", "하우스": "고온 방지"},
+        {"월": "5월", "사과": "적과·방제", "블루베리": "수확 초", "감자": "김·역병", "고구마": "노지 이식", "토마토": "유인·흑반", "하우스": "본격 재배"},
+        {"월": "6월", "사과": "여름 전정", "블루베리": "본수확", "감자": "수확·병", "고구마": "순 관리", "토마토": "첫 수확", "하우스": "장마 배수"},
+        {"월": "7월", "사과": "병충해", "블루베리": "후기 수확", "감자": "캐기", "고구마": "비대기", "토마토": "고온 대책", "하우스": "환기·열"},
+        {"월": "8월", "사과": "낙과·가지", "블루베리": "휴식 전", "감자": "정리", "고구마": "덩이 비대", "토마토": "적과", "하우스": "태풍 대비"},
+        {"월": "9월", "사과": "수확", "블루베리": "가을 전정", "감자": "저장", "고구마": "캐기", "토마토": "말기", "하우스": "가을 작물"},
+        {"월": "10월", "사과": "저장", "블루베리": "낙엽·멀칭", "감자": "순환", "고구마": "후숙", "토마토": "정리", "하우스": "보온 준비"},
+        {"월": "11월", "사과": "낙엽·월동", "블루베리": "월동 물", "감자": "종薯", "고구마": "저장", "토마토": "끝", "하우스": "보온 강화"},
+        {"월": "12월", "사과": "전정·유인", "블루베리": "휴면·검정", "감자": "발주", "고구마": "점검", "토마토": "계획", "하우스": "기록 정리"},
+    ]
+
+    with _portal_page_card():
+        st.header("🌱 농사 · 화성시 텃밭")
+        st.caption(
+            "**경기도 화성시** 소재 기준 **참고용**입니다. 인근(수원·오산·평택)과 **미세 기후**(남향·물가·도시열)에 따라 "
+            "**1~2주 차이**가 날 수 있습니다. **품종·시설**에 맞게 조정하세요."
+        )
+        st.info(
+            "재배 작물: **사과·블루베리·감자·고구마·토마토** + **비닐하우스 1동**. "
+            "**농약·비료**는 등록·지침을 따르고, **농업기술센터** 상담을 권장합니다.",
+            icon="💡",
+        )
+
+        a1, a2, a3 = st.tabs(["📅 월별 달력 & 상세", "🌳 작물별 연간", "🏠 하우스 1동"])
+        with a1:
+            st.subheader("연간 한눈표 (키워드)")
+            if pd is not None:
+                st.dataframe(pd.DataFrame(_hwaseong_overview_rows), use_container_width=True, hide_index=True)
+            else:
+                st.table(_hwaseong_overview_rows)
+
+            st.divider()
+            _mon_labels = [f"{m}월" for m in range(1, 13)]
+            _pick = st.selectbox(
+                "월을 고르면 아래에 **그달 할 일**이 펼쳐집니다.",
+                options=list(range(1, 13)),
+                format_func=lambda i: _mon_labels[i - 1],
+                key="hwaseong_farm_month_pick",
+            )
+            st.markdown(_hwaseong_monthly_md.get(_pick, ""))
+
+        with a2:
+            st.markdown(
+                """
+##### 사과 (낙엽 수목)
+- **전정**: 겨울(형태·햇빛·통풍), 여름(생육 조절). **상처**는 살균 처리.
+- **적과·피복**: 과밀하면 크기·당도↓. **봉지**는 품종·목적에 따라.
+- **병해**: 검은별무늬병·붕괴병 등 — **예방 살포** 시기가 핵심(지역 달력).
+- **수확**: 품종별 **당도·색**. 저장은 **통풍·저온**.
+
+##### 블루베리 (산성 토양)
+- **pH 4.5~5.5** 유지(피트·유황). **배수** 필수(뿌리 무산소 싫어함).
+- **가지치기**: 겨울~초봄, 너무 무성하면 열매 품질↓.
+- **새**: 그물·충격음. **수확**은 아침이 신선.
+- **품종**: 남고·북고·반고에 따라 **수확 월**이 갈림.
+
+##### 감자 (덩이줄기)
+- **종薯**: 건전한 것, **싹** 균일하게. **역병**은 침수·종薯가 핵심.
+- **김 매기기**·**북주기**: 덩이 햇빛 막고 품질 유지.
+- **수확**: 잎 마름 후 **껍질 굳기** 기간 두면 저장성↑.
+
+##### 고구마 (덩이뿌리)
+- **육묘**→**이식**(따뜻해진 뒤). **순** 너무 무성하면 **덩이**로 양분 이동.
+- **수확**: **서리 전**, 덩이 **후숙**(맛·저장).
+- **저장**: 12~15℃·통풍. **상처** 최소화해 캐기.
+
+##### 토마토 (온대 채소)
+- **육묘** 2~3월, **정식** 서리 지난 뒤. **무한성장형**은 유인·순치기.
+- **흑반병·역병**: 과습·잎 물 금지. **칼슘** 결핍(끝부 패임) 주의.
+- **고온**: **주와·그늘막**. **저온**: **과실 부작**.
+
+---
+**화성시**: [화성시청](https://www.hs.go.kr/) 에서 **농업·축산**·**농업기술센터** 메뉴를 검색해 최신 **교육·상담** 일정을 확인하세요.
+                """
+            )
+        with a3:
+            st.markdown(
+                """
+##### 비닐하우스 1동 운영 체크리스트
+- **환기**: 낮 **과열**(30℃+) 방지가 여름 최우선. **측창·천창** 규칙적으로.
+- **결로**: 잎·과실에 물방울 → **병**. **환기**로 이슬 말리기, **방제**와 병행.
+- **겨울**: **이중 비닐**·**스크린**·**난방** 비용 vs 작물 가치. **일산화탄소**·**화재** 센서 권장.
+- **토양**: 연중 재배 시 **염류·병원균** 축적 — **휴지기 태양열 소독**·**유기물** 투입·**작물 로테이션**.
+- **양액**(사용 시): **EC·pH** 매일 기록. **누출**·**펌프** 점검.
+- **태풍**: **밴드**·**앵커**·**비닐** 찢김 대비. 작업 중 **안전**.
+
+##### 공간이 한 동뿐일 때
+- **우선순위**를 정해 **토마토·채소** vs **육묘**를 분리(병 옮김). 가능하면 **구역** 나누기.
+                """
+            )
+            st.caption("하우스 내 **온도 로그**(최저·최고)를 월별로 메모해 두면 내년 개선에 큰 도움이 됩니다.")
+
+
+def _render_page_auction() -> None:
+    """부동산·동산 경매 입문 — 땅·공장·아파트 등 유형별로 흐름·체크 포인트 정리(참고용, 법률 자문 아님)."""
+    with _portal_page_card():
+        st.header("⚖️ 경매 · 입찰 가이드")
+        st.caption(
+            "**법원 경매·공매·민간 경매** 등 절차·용어가 다릅니다. 아래는 **시작하기 쉬운 흐름** 위주이며, "
+            "**낙찰 전·후** 반드시 **등기·현장·전문가**로 확인하세요. (법률·투자 조언이 아닙니다.)"
+        )
+        st.warning(
+            "경매 물건은 **하자·권리관계·인도 지연** 리스크가 큽니다. **보증금·잔금** 일정을 어기면 **몰수** 등 불이익이 생길 수 있습니다.",
+            icon="⚠️",
+        )
+
+        t0, t1, t2, t3, t4, t5 = st.tabs(
+            [
+                "시작하기",
+                "토지·땅",
+                "공장·창고",
+                "아파트·집합",
+                "공매·기타",
+                "체크리스트",
+            ]
+        )
+
+        with t0:
+            st.markdown(
+                """
+##### 왜 단위가 나뉘나
+- **토지**: 용도·고도·도로·분할 가능성이 핵심.
+- **공장·상가**: **건축·소방·환경**·**설비 노후**·**영업 적합성**이 핵심.
+- **아파트**: **지분·관리비·대항력 있는 임차인**·**재건축** 가능성 등 **집합건물** 이슈가 핵심.
+
+##### 법원 경매(대략적 흐름)
+1. **사건 검색** → 물건 **명세·현황** PDF, **감정평가서**, **기일** 확인  
+2. **현장 답사**(가능하면 여러 번) — 점유·주변 시세·소음·진입로  
+3. **권리분석**(말소 기준권리·선순위·임대차) — **등기부·매각물건명세서**  
+4. **입찰** — **보증금** 준비, **전자입찰** 절차 숙지  
+5. **낙찰** → **잔금** → **등기 이전** → **인도**(별도 소송·협의 가능성 염두)
+
+##### 자주 쓰는 용어
+| 용어 | 뜻(요약) |
+|------|----------|
+| **최저매각가격** | 그 금액 미만 입찰은 무효인 경우가 많음 |
+| **매각기일** | 입찰하는 날(시간 엄수) |
+| **말소 기준 권리** | 매각으로 소멸·인수 여부가 갈리는 기준 |
+| **대항력** | 확정일자 등으로 보호받는 임차인 등 |
+| **별도 등기** | 낙찰자가 인수해야 할 권리(예: 지상권) |
+
+##### 정보는 어디서
+- **법원**: [대법원 경매정보](https://www.courtauction.go.kr/) — 사건·물건·일정  
+- **공매**: [온비드](https://www.onbid.co.kr/) 등 **기관·지자체**별 공고  
+- **실거래가**: 국토부 **실거래가 공개** 등으로 **주변 시세** 감 잡기  
+                """
+            )
+
+        with t1:
+            st.markdown(
+                """
+##### 토지·땅 경매에서 볼 것
+- **지목·용도지역** — 건축 가능 여부, **고도·건폐율·용적률**  
+- **도로 접도** — 맹지 여부, 진입로 확보  
+- **도시계획** — 개발제한구역, 도로계획, 분할 제한  
+- **실측·경계** — 표시와 실제 다를 수 있음, **인접 필지** 분쟁  
+- **토지거래허가구역** — 취득 절차·자격  
+- **농지·산지** — 취득·전용·경작 의무 등 별도 규제  
+
+##### 답사 팁
+- **위성지도 + 현장** — 경사·접도·주변 용도  
+- **상하수도·전기** 인입 거리·비용은 **별도 견적** 염두  
+
+##### 리스크
+- **지상물·무허가 건물** — 인도·철거 비용  
+- **분묘·수목** — 관련 비용·협의  
+                """
+            )
+
+        with t2:
+            st.markdown(
+                """
+##### 공장·창고·근린상가 유형
+- **건축물 대장** — 용도·층수·면적·위반 건축물 여부  
+- **소방·전기·위험물** — 업종 바꿀 때 **시설 기준** 달라질 수 있음  
+- **환경**(악취·소음·배출) — 주변 민원·규제  
+- **설비** — 크레인·압축기·냉동 등 **잔존·철거 비용**  
+- **임대차** — **대항력 있는 세입자**·**보증금** 인수 여부  
+
+##### 공장 매입 후
+- **사업자 등록·업종**과 **시설 기준** 맞추기  
+- **전력 용량** — 증설 비용·기간  
+- **하역·진입로** — 대형 차량 출입  
+
+##### 상가·점포
+- **유동인구·상권** — 공실률, 경쟁 점포  
+- **권리금** 별도 협상인지, **공매 비고** 확인  
+                """
+            )
+
+        with t3:
+            st.markdown(
+                """
+##### 아파트·오피스텔·집합건물
+- **전유부·대지권** — 면적·지분 비율  
+- **관리비·미납** — **인수**되는지 명세 확인  
+- **점유** — **대항력 있는 임차인**·**전세** 등 **인도 지연** 가능성  
+- **재건축·재개발** — 조합·사업성·추가 분담  
+- **주차·저당** — 배정·별도 권리 여부  
+
+##### 입찰 전
+- **같은 단지 최근 낙찰가율**·**실거래가** 비교  
+- **하자·누수** — 현장·입주민 커뮤니티는 참고만(확정 판단 X)  
+
+##### 세대 내부
+- **인도 시점**에 **원상회복·집기** 문제 — 명세·사진으로 가늠  
+                """
+            )
+
+        with t4:
+            st.markdown(
+                """
+##### 공매(온비드 등)
+- **기관별** 규칙·**입찰 자격**·**대금 납부** 방식이 **법원과 다름**  
+- **국·공유재산** — 사용허가·목적 외 사용 제한  
+- **지방재정·공기업** — **유찰** 시 **가격·조건** 변동 있음  
+
+##### 민간·온라인 경매
+- **물건 설명·책임** 한도가 **다름** — 약관·유의사항 필독  
+- **위탁 경매** — 원소유자·채권 관계 확인  
+
+##### 동산·기계
+- **현장 시운전**·**등록**(차량)·**반출 비용**  
+- **유치권·압류** 말소 여부  
+
+##### 세금·비용(개략)
+- **취득세·등록면허세** 등 — **낙찰일·기준**은 세법·지침 따름(확인 필수)  
+- **중개·법무사·등기** 비용 별도  
+                """
+            )
+
+        with t5:
+            st.markdown(
+                """
+##### 입찰 전 체크 (O / X 메모용)
+- [ ] **등기부등본**·**매각물건명세서**·**감정평가서** 읽음  
+- [ ] **현장** 방문(낮·저녁·주말 각각 가능하면)  
+- [ ] **선순위 권리**·**말소/인수** 구분 이해  
+- [ ] **임차인·점유** — 명세표·전입·확정일자 등 **비교**  
+- [ ] **자금** — 보증금·잔금 일정·**대출 가능 여부**(경매는 은행 심사 까다로운 편)  
+- [ ] **인도·명도** — 소송·기간·비용 **시나리오**  
+- [ ] **세금·취득 후 비용** 러프 산출  
+
+##### 낙찰 후
+- [ ] **잔금일** 절대 놓치지 않기  
+- [ ] **등기** — 법무사 일정  
+- [ ] **명도** — 협의·법적 절차·**추가 비용**  
+
+---
+**기록**: 물건 번호·사건번호·열람 일시·질문한 전문가 답변을 **한 곳에** 남기면 다음 입찰에 재사용하기 좋습니다.
+                """
+            )
+
+        st.divider()
+        st.caption("최신 절차·요건은 **대법원 경매정보**, **온비드** 등 공식 공지를 우선 확인하세요.")
+
+
+def _render_page_health() -> None:
+    """고혈압·당뇨·성인병 — 생활·주의 참고(의료 행위·진단 대체 아님)."""
+    with _portal_page_card():
+        st.header("❤️ 건강 · 생활 관리")
+        st.caption(
+            "아래는 **일반적인 건강정보·생활 습관** 정리입니다. **증상·약 조절·목표 수치**는 사람마다 다르므로 "
+            "**의사·약사**와 상담하세요. 이 페이지는 **진단·치료를 대신하지 않습니다.**"
+        )
+        st.info(
+            "**응급**: 가슴 통증·호흡곤란·한쪽 팔다리 마비·말 어눌·심한 저혈당 의심 시 **119** 또는 응급실.",
+            icon="🚨",
+        )
+
+        h1, h2, h3, h4 = st.tabs(["고혈압", "당뇨", "성인병·대사", "검진·기록"])
+
+        with h1:
+            st.markdown(
+                """
+##### 고혈압 환자가 특히 주의할 점
+- **염분(소금)** — 가공식품·국물·젓갈·라면·패스트푸드에 **숨은 나트륨**이 많습니다. **영양표시**를 습관화하세요.  
+- **음주** — 혈압을 끌어올리고 약 효과를 흐립니다. 권장량·금주는 **담당 의사**와 결정.  
+- **금연** — 담배는 혈관을 해치고 뇌·심장 위험을 키웁니다.  
+- **혈압 측정** — 같은 시간대·안정 후 **2~3회** 평균에 가깝게 기록. **팔 높이·커프 크기** 맞는지 확인.  
+- **약 복용** — 혈압이 좋아졌다고 **임의 중단**하면 반동·위험이 커질 수 있습니다. 조절은 **전문가**와.  
+- **감기약·염증 진통제(NSAIDs)** 일부는 **혈압·신장**에 부담이 될 수 있어, **복용 중인 약**을 알리고 상담.  
+- **추위·스트레스·코골이(수면무호흡 의심)** — 혈압 변동·밤샘 악화 요인.  
+- **운동** — 규칙적인 **유산소**(걷기 등)와 의사가 허용한 **근력**은 도움이 되는 경우가 많으나, **수축기 180 이상** 등 통제 안 될 때는 먼저 진료.  
+- **카페인** — 개인차가 큼. 혈압 들쭉날쭉하면 **줄이고** 반응을 관찰.
+
+##### 목표와 동반질환
+- 당뇨·신장질환·심장질환이 있으면 **혈압 목표**가 더 빡빡할 수 있습니다. **본인 기준**은 진료에서 확인하세요.
+
+---
+**참고**: [질병관리청 건강정보](https://www.kdca.go.kr/) · [국민건강보험 건강정보](https://www.nhis.or.kr/) 에서 **생활습관** 자료를 볼 수 있습니다.
+                """
+            )
+
+        with h2:
+            st.markdown(
+                """
+##### 당뇨병(특히 제2형)에서 중요한 것
+- **혈당 관리** — 공복·식후 목표는 **개인별**. **HbA1c(당화혈색소)** 는 2~3개월 평균을 봅니다.  
+- **식이** — **탄수화물 총량·종류**(정제 탄수·당 음료 과다 주의), **채소·단백질** 배치. **혼자 극단적 금식**은 저혈당 위험.  
+- **운동** — 규칙적 활동은 **인슐린 저항** 개선에 도움이 되는 경우가 많습니다. **인슐린·혈당강하제** 복용 시 **저혈당** 대비(간식·규칙).  
+- **발 관리** — 감각 저하·상처는 **감염·괴사**로 이어질 수 있어 **맨발 금지·신발 확인·상처 조기 치료**.  
+- **눈·신장** — 망막·신기능 검사는 **합병증 조기 발견**에 중요합니다.  
+- **혈압·지질** — 당뇨는 **심혈관 위험**이 함께 올라가기 쉬워 **염분·금연·혈압·콜레스테롤**도 같이 봅니다.  
+- **저혈당 신호** — 식은땀·손떨림·공복감·어지러움 시 **당을 소량** 섭취(의료진이 안내한 대응) 후 혈당 재측정·필요 시 도움 요청.
+
+##### 인슐린·경구약
+- **용량·시간** 임의 변경 금지. **감염·수술·식이 변화** 시 혈당이 흔들리기 쉬우니 **연락 가능한 의료진** 염두.
+
+---
+**참고**: 당뇨 교육은 **당뇨교육실**·**가정의학과·내분비내과**에서 프로그램을 안내하는 경우가 많습니다.
+                """
+            )
+
+        with h3:
+            st.markdown(
+                """
+##### 성인병(만성질환)과 대사
+- **대사증후군** — 복부비만·고혈압·고혈당·고중성지방·낮은 HDL 등이 **겹치면** 심혈관 위험이 커집니다.  
+- **이상지질혈증** — **LDL·중성지방**은 식이·운동·필요 시 약으로 관리. 검사는 **주기적으로**.  
+- **비알코올성 지방간** — 체중·당·지질 관리가 중심. **과음**도 지방간에 가세합니다.  
+- **골다공증·퇴행성 관절염** — 나이 들며 흔해지므로 **낙상 예방**·적절한 **운동·칼슘·비타민D**는 진료와 상의.  
+- **수면·정신건강** — 만성 스트레스·불면은 **혈압·혈당·식욕**을 흔듭니다.
+
+##### 생활 습관 공통
+- **체중**: 서서히 감량(급격한 요요는 유지 어려움).  
+- **가공육·튀김·가당 음료** 줄이기.  
+- **좌식** 줄이고 **하루 총 활동량** 늘리기.
+
+---
+이 탭 내용은 **예방·자가 점검**용 개요이며, **약물·목표 수치**는 반드시 **개인 진료**로 확정하세요.
+                """
+            )
+
+        with h4:
+            st.markdown(
+                """
+##### 정기 검진(한국에서 흔한 틀)
+- **국가건강검진** 대상·주기는 **나이·공단 안내**에 따릅니다. **혈압·공복혈당·지질·신장** 등 기본 항목을 챙기세요.  
+- **생애전환기** — 중년 이후 **암 검진**·**골밀도** 등 권장 항목이 늘어납니다.  
+- **가족력** — 조기 심혈관·당뇨 가족력이 있으면 **더 일찍·촘촘히** 논의할 가치가 있습니다.
+
+##### 집에서 기록하면 좋은 것
+- **혈압**: 날짜·시간·수치·특이사항(음주·잠 부족 등).  
+- **혈당**: 측정기 사용 시 **식전·식후** 규칙을 정해 두고(의사와) 기록.  
+- **체중·허리둘레**: 월 1회라도 추세 파악에 도움.
+
+---
+**응급 징후**(다시 한 번): 턱·팔·등으로 퍼지는 가슴 통증, 숨참, 갑작스런 한쪽 약함, 말이 어눌해짐, 의식 저하 → **즉시 119**.
+                """
+            )
+
+        st.divider()
+        st.caption("증상이 있거나 약을 복용 중이면 **이 앱의 문구로 조절하지 말고** 의료기관을 이용하세요.")
+
+
+def _render_page_diet() -> None:
+    """체중·비만 관리 — 식이·운동·의약품 개요(처방·진단 대체 아님)."""
+    with _portal_page_card():
+        st.header("🥗 다이어트 · 체중 관리")
+        st.caption(
+            "**식이·운동·약·수술** 선택은 사람마다 다릅니다. 아래는 **참고용 정리**이며, "
+            "**비만 치료제는 반드시 의사 처방·감독** 하에 사용하는 것이 원칙입니다. "
+            "**이 페이지는 처방·용량·구매를 안내하지 않습니다.**"
+        )
+        st.warning(
+            "**자가 구매·공동구매·해외 직구 의약품**은 위약·부작용·법적 문제 위험이 큽니다. "
+            "**정식 진료**를 받으세요.",
+            icon="⚠️",
+        )
+
+        d1, d2, d3, d4, d5 = st.tabs(
+            ["시작하기", "운동·활동", "주사제·GLP-1 계열", "기타 약·수술", "부작용·주의"]
+        )
+
+        with d1:
+            st.markdown(
+                """
+##### 목표 세우기
+- **체중**만이 아니라 **허리둘레·혈압·혈당·지질·근력** 등 **건강 지표**를 함께 보는 편이 안전합니다.  
+- **급격한 굶주림** 다이어트는 **요요·근손실·담석** 등 위험이 있어, **지속 가능한 속도**를 의료진과 논의하세요.
+
+##### 식이(생활)
+- **총 칼로리**와 **영양 균형**(단백질·채소·통곡물) — 극단적 **탄수 절단**은 당뇨·약 복용자에게 특히 위험할 수 있습니다.  
+- **가당 음료·알코올·가공 간식** 줄이기 — 체감 칼로리 감소에 효과적인 경우가 많습니다.  
+- **기록** — 며칠간 식사·간식을 적으면 **패턴**이 보입니다(앱·수첩 무관).
+
+##### 언제 약·병원을 고려하나
+- **BMI·동반질환(당뇨·고혈압·수면무호흡 등)** 에 따라 **비만 의학적 치료** 권고 여부가 달라집니다. **본인 기준**은 진료에서만 확정됩니다.
+
+---
+**참고**: [질병관리청 비만](https://www.kdca.go.kr/) · [식약처 안전정보](https://www.mfds.go.kr/) — **공식 가이드**를 우선하세요.
+                """
+            )
+
+        with d2:
+            st.markdown(
+                """
+##### 운동의 역할
+- **유산소**(걷기·자전거·수영 등) — 심폐·에너지 소모. 무릎 부담이 적은 종목부터 **시간을 늘리기**.  
+- **근력 운동** — 근육량 유지가 **기초대사·요요 방지**에 도움이 됩니다. **올바른 자세**가 우선.  
+- **NEAT**(비운동성 활동) — 계단·집안 일·산책으로 **앉아 있는 시간** 줄이기.
+
+##### 시작할 때
+- 오래 운동하지 않았다면 **짧게·자주** — 통증·호흡곤란 시 **중단**하고 진료.  
+- **스트레칭·준비운동** — 하체·허리 보호.  
+- **수분** 보충, 더운 날 **온열질환** 주의.
+
+##### 약 병행 시
+- **혈당강하제·인슐린** 복용 중 **공복 운동**은 저혈당 위험 — **의사·약사**와 운동 계획 공유.
+
+---
+운동 종목·강도는 **개인 체력·관절**에 맞게 조절하세요.
+                """
+            )
+
+        with d3:
+            st.markdown(
+                """
+##### 왜 요즘 이야기가 많은지
+- **장에서 포만감·혈당 조절**에 관여하는 호르몬을 닮은 약(주로 **주사**)이 등장하면서, **생활습관 교정**과 병행할 때 체중 감소에 도움이 되는 경우가 **임상에서** 보고되고 있습니다.  
+- **모두에게 맞지 않으며**, **부작용·금기·비용**이 있어 **전문의 평가**가 필요합니다.
+
+##### 성분·제품 구분(이름만 정리 — 적응증은 제품·국가별 상이)
+| 흔한 명칭 | 성분(계열) | 비고(개략) |
+|-----------|------------|------------|
+| **삭센다(Saxenda)** | 리라글루타이드(GLP-1 유사) | 비만 치료 **전용 표시**가 있는 제품(국가별 상이). **당뇨용 제품과 용량·목적이 다름** |
+| **위고비(Wegovy)** | 세마글루타이드 | 비만 적응 **주사** |
+| **오젬픽(Ozempic)** | 세마글루타이드 | 원래 **당뇨 치료** 표시; 일부 지역에서 비만에 쓰이기도 하나 **표시·처방 관행은 국가·지침** 따름 |
+| **마운자로·젭바운드** 등 | 티르제파타이드(GLP-1+GIP) | 당뇨·비만 **표시가 제품별로 다름** |
+
+##### 공통적으로 알아둘 점
+- **점진적 용량 조절**(titrate) 등 **지침**이 있어 **임의로 바꾸면 안 됩니다**.  
+- **구토·설사·복통** 등 **위장 부작용**이 흔히 보고됩니다 — 심하면 **중단·진료**.  
+- **갑상선 수종·가족력**, **췌장염 병력** 등 **금기·주의**가 있을 수 있습니다.  
+- **임신·수유** — 대부분 사용 피해야 합니다(제품별).  
+
+---
+**다시 한 번**: 표의 브랜드명은 **설명용**이며, **구입·복용 결정은 의사만** 하세요.
+                """
+            )
+
+        with d4:
+            st.markdown(
+                """
+##### 경구제(예시)
+- **오를리스타트(Orlistat)** — 지방 흡수 억제. **지방성 설사·흡수** 등 주의, **저지방 식이**와 병행 논의.  
+- 과거 **식욕억제 경구제**류는 **심혈관·정신건강** 이슈로 **엄격한 적응**이 있을 수 있어, **현재 한국에서 쓰이는지·본인에게 맞는지**는 반드시 **진료**에서 확인.
+
+##### 수술적 치료
+- **비만 수술**(위 절제술·우회술 등)은 **중증 비만·동반질환** 등 기준을 만족할 때 검토. **영양 결핍·복합 비타민** 평생 관리가 필요한 경우가 많습니다.
+
+##### 생활 요법이 먼저
+- 약·수술은 **식이·운동·행동 치료**와 **병행**되는 경우가 많고, **단독 만능**이 아닙니다.
+
+---
+**의약품 승인·표시**는 시기마다 바뀝니다. **식약처 허가·첨단의료** 공지를 확인하세요.
+                """
+            )
+
+        with d5:
+            st.markdown(
+                """
+##### 흔한 부작용·신호
+- **소화기**: 오심, 구토, 설사, 변비 — 초기에 많고 **시간이 지나며** 나아지는 경우도 있으나 **개인차** 큼.  
+- **저혈당** — **당뇨약·인슐린**과 병용 시 특히 주의. **식은땀·어지러움** 시 대응법은 **진료에서** 교육.  
+- **담낭·췌장** — **복통이 심하거나 등으로 퍼짐** → **응급** 고려.  
+- **탈수** — 구토·설사 시 **수분·전해질**.
+
+##### 약물·병행
+- **다른 GLP-1 제제**와 **중복 사용** 금지.  
+- **위장관 약·일부 항생제** 등 **상호작용** — 처방 시 **복용 목록**을 모두 알리기.
+
+##### 법·안전
+- **타인 처방전**·**불법 유통**은 처벌 대상이 될 수 있습니다.  
+- **SNS·공구** 약은 **성분·보관** 불명으로 위험합니다.
+
+---
+**응급**: 호흡곤란, 의식 이상, 심한 복통 → **119** 또는 응급실.
+                """
+            )
+
+        st.divider()
+        st.caption(
+            "체중 감량 목표·약물 선택은 **내분비내과·가정의학과·비만 클리닉** 등에서 **개인별**로 결정하세요."
+        )
+
+
+def _render_page_restaurants() -> None:
+    """지역별 맛집 탐색 가이드 — 실시간 영업·가격은 앱에서 확인."""
+    with _portal_page_card():
+        st.header("🍽️ 맛집·식당 정보 탐색")
+        st.caption(
+            "이 페이지는 **특정 가게를 추천·비방하지 않습니다.** "
+            "**서울·경기·지방**으로 나누어 **찾는 방법·지역 특성**만 정리했습니다."
+        )
+        s1, s2, s3, s4 = st.tabs(["서울", "경기·인천", "광역·지방 도시", "전국 공통 팁"])
+        with s1:
+            st.markdown(
+                """
+##### 서울에서 찾을 때
+- **밀집**: 강남·홍대·명동·종로·성수 등 **역세권**은 웨이팅·가격대가 높은 편입니다. **점심·평일**이 상대적으로 수월한 경우가 많습니다.
+- **골목**: 지도 **스트리트뷰·최근 리뷰 사진**으로 메뉴 변화를 확인. **현금·카드** 표기도 체크.
+- **주차**: **발렛·주차장 유무**를 먼저 보고 방문하면 스트레스가 줄어듭니다.
+                """
+            )
+            st.markdown("- [네이버 지도 — 서울](https://map.naver.com/p/search/%EC%84%9C%EC%9A%B8%20%EB%A7%9B%EC%A7%91)")
+        with s2:
+            st.markdown(
+                """
+##### 경기·인천
+- **신도시·대형몰 주변**은 체인·브랜드가 많고, **구시가지·항구(인천)** 는 향토 음식·해산물 축이 섞입니다.
+- **출퇴근 반경**: 집·직장 기준 **지도 저장**을 만들어 두면 주말 외식 선택이 빨라집니다.
+- **주차 넓은 곳**: 가족 단위로 **브런치·한정식** 찾을 때 유리한 경우가 많습니다.
+                """
+            )
+            st.markdown("- [네이버 지도 — 경기 맛집 검색](https://map.naver.com/)")
+        with s3:
+            st.markdown(
+                """
+##### 부산·대구·광주·대전 등
+- **항구·시장**(부산 자갈치 등): **회·밀면** 를 찾는 흐름이 흔합니다. **시세·위생**은 현장·리뷰 최신글을 보세요.
+- **내륙**: **한우·닭·쌀국수** 지역 특색이 갈립니다. **현지 블로그보다 최근 3개월 리뷰**를 우선하세요.
+- **관광지 인근**: 성수기 **웨이팅·가격** 프리미엄을 감안하세요.
+                """
+            )
+        with s4:
+            st.markdown(
+                """
+##### 전국 공통
+- **검색어**: `지역명 + 먹거리 + (점심 OR 저녁)` 보다 **`동네 이름 + 음식 종류`** 가 때로 더 잘 맞습니다.
+- **앱**: **네이버 지도·카카오맵** — 길찾기·리뷰. **망고플레이트** — 큐레이션(취향 차 큼). **미슐랭 가이드** — 상위권 레스토랑(예약 필수인 경우 많음).
+- **리뷰**: **극단적 호·혹평**은 참고만. **사진 날짜·메뉴판**이 맞는지 봅니다.
+- **예약**: 네이버·캐치테이블·전화. **노쇼**는 업주·다음 손님 모두에게 피해입니다.
+
+---
+**재미 요소**: 친구와 **지역별 ‘해먹어 볼 리스트’**(예: 서울 냉면 3곳, 경기 브런치 2곳)를 메모 앱에 두고 **천천히 채우는** 식으로 쓰면 부담 없이 즐기기 좋습니다.
+                """
+            )
+            st.markdown(
+                "- [망고플레이트](https://www.mangoplate.com/) · [미슐랭 가이드 서울](https://guide.michelin.com/kr/ko)"
+            )
 
 
 def main() -> None:
     st.set_page_config(
-        page_title="생활 정보 포털",
-        page_icon="🐙",
-        layout="centered",
+        page_title="오늘의 픽 · 주식 스캐너",
+        layout="wide",
         initial_sidebar_state="collapsed",
     )
 
-    # 모바일 퍼스트: 어두운 배경 + 고대비 텍스트 · 터치 친화 UI
+    # 기본은 다크 톤 블록 + 이후 «PC 레퍼런스» 블록에서 실까형 라이트로 덮어씀
     st.markdown(
         """
 <style>
@@ -5394,9 +12557,11 @@ def main() -> None:
     }
     /* ── 앱 배경 ── */
     .stApp {
-        -webkit-tap-highlight-color: rgba(129, 140, 248, 0.22);
-        background: linear-gradient(165deg, #252448 0%, #1e1b4b 44%, #172554 100%) fixed !important;
-        color: #eef2ff !important;
+        -webkit-tap-highlight-color: rgba(59, 130, 246, 0.20);
+        background: radial-gradient(1200px 700px at 10% -10%, rgba(96, 165, 250, 0.18), transparent 55%),
+                    radial-gradient(1000px 600px at 100% 0%, rgba(139, 92, 246, 0.16), transparent 52%),
+                    linear-gradient(180deg, #0f172a 0%, #111827 52%, #0b1220 100%) fixed !important;
+        color: #e5e7eb !important;
     }
     /* ── 메인 컨테이너: 모바일 우선 ── */
     .main .block-container {
@@ -5430,8 +12595,8 @@ def main() -> None:
         top: 0 !important;
         z-index: 999991 !important;
         background: rgba(30, 27, 75, 0.92) !important;
-        backdrop-filter: blur(14px) !important;
-        -webkit-backdrop-filter: blur(14px) !important;
+        backdrop-filter: blur(6px) !important;
+        -webkit-backdrop-filter: blur(6px) !important;
         border-bottom: 1px solid rgba(165, 180, 252, 0.28) !important;
     }
     header[data-testid="stHeader"] [data-testid="stToolbar"] button { color: #e0e7ff !important; }
@@ -5439,61 +12604,67 @@ def main() -> None:
     .stTabs [data-baseweb="tab-list"] {
         display: flex !important;
         flex-wrap: nowrap !important;
-        gap: 0.25rem;
-        padding: 0.35rem !important;
-        background: rgba(49, 46, 129, 0.42);
-        border-radius: 16px;
+        gap: 0.2rem;
+        padding: 0.25rem !important;
+        background: rgba(30, 41, 59, 0.70);
+        border-radius: 12px;
+        border: 1px solid rgba(148, 163, 184, 0.22);
         overflow: visible !important;
     }
     .stTabs [data-baseweb="tab-list"] button {
         flex: 1 1 0 !important;          /* 균등 너비 */
         min-width: 0 !important;
-        min-height: 3.2rem !important;
-        padding: 0.45rem 0.3rem !important;
-        font-size: clamp(0.78rem, 3vw, 0.95rem) !important;
-        line-height: 1.3 !important;
-        border-radius: 12px !important;
-        color: #e0e7ff !important;
-        background: rgba(255, 255, 255, 0.07) !important;
-        border: 1px solid rgba(165, 180, 252, 0.22) !important;
+        min-height: 2.1rem !important;
+        padding: 0.18rem 0.22rem !important;
+        font-size: clamp(0.64rem, 2.4vw, 0.78rem) !important;
+        line-height: 1.1 !important;
+        border-radius: 9px !important;
+        color: #cbd5e1 !important;
+        background: rgba(51, 65, 85, 0.65) !important;
+        border: 1px solid rgba(100, 116, 139, 0.30) !important;
         white-space: normal !important;
         word-break: keep-all !important;
         text-align: center !important;
         transition: background 0.15s ease;
     }
     .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
-        background: linear-gradient(165deg, #6366f1 0%, #4f46e5 100%) !important;
-        color: #fafaff !important;
-        border-color: rgba(199, 210, 254, 0.6) !important;
+        background: linear-gradient(165deg, #3b82f6 0%, #2563eb 100%) !important;
+        color: #f8fafc !important;
+        border-color: rgba(147, 197, 253, 0.68) !important;
         font-weight: 700 !important;
-        box-shadow: 0 4px 14px rgba(99, 102, 241, 0.45) !important;
+        box-shadow: 0 4px 12px rgba(37, 99, 235, 0.35) !important;
     }
-    /* ── 서브 탭 (탭 안의 탭): 가로 스크롤 허용 ── */
+    /* ── 서브 탭 (탭 안의 탭): 넘치면 다음 줄로 — 모바일에서 코스피/코스닥 등 */
     .stTabs .stTabs [data-baseweb="tab-list"] {
+        display: flex !important;
+        flex-wrap: wrap !important;
+        overflow-x: visible !important;
         background: rgba(30, 27, 75, 0.5);
         border-radius: 10px;
-        padding: 0.25rem !important;
-        flex-wrap: nowrap !important;
-        overflow-x: auto !important;
-        -webkit-overflow-scrolling: touch;
-        scrollbar-width: none;
+        padding: 0.3rem !important;
+        gap: 0.35rem;
+        justify-content: flex-start;
     }
     .stTabs .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar { display: none; }
     .stTabs .stTabs [data-baseweb="tab-list"] button {
-        flex: 1 1 auto !important;
-        min-width: max-content !important;
-        min-height: 2.7rem !important;
-        padding: 0.4rem 0.9rem !important;
-        font-size: clamp(0.85rem, 3.2vw, 0.97rem) !important;
+        flex: 1 1 calc(50% - 0.35rem) !important;
+        min-width: min(100%, 9.5rem) !important;
+        max-width: 100% !important;
+        min-height: 1.85rem !important;
+        padding: 0.18rem 0.36rem !important;
+        font-size: clamp(0.64rem, 2.4vw, 0.8rem) !important;
         border-radius: 8px !important;
-        white-space: nowrap !important;
+        white-space: normal !important;
+        word-break: keep-all !important;
+        text-align: center !important;
+        line-height: 1.1 !important;
     }
     /* ── 메트릭 카드 ── */
     div[data-testid="stMetric"] {
-        background: linear-gradient(160deg, #433d8b 0%, #3730a3 100%) !important;
-        border: 1px solid rgba(165, 180, 252, 0.35) !important;
-        border-radius: 16px !important;
-        box-shadow: 0 6px 20px rgba(30, 27, 75, 0.42) !important;
+        background: linear-gradient(160deg, rgba(30, 41, 59, 0.96) 0%, rgba(15, 23, 42, 0.95) 100%) !important;
+        border: 1px solid rgba(148, 163, 184, 0.28) !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 14px rgba(2, 6, 23, 0.42) !important;
         padding: 1rem !important;
     }
     div[data-testid="stMetric"] [data-testid="stMetricLabel"] { color: #c7d2fe !important; font-size: clamp(0.8rem, 3vw, 0.95rem) !important; }
@@ -5570,13 +12741,13 @@ def main() -> None:
     div[data-testid="stAlert"] p, div[data-testid="stAlert"] span { color: #eef2ff !important; }
     /* ── 포털 카드 (border 컨테이너) ── */
     section.main div[data-testid="stVerticalBlockBorderWrapper"] {
-        background: linear-gradient(165deg, rgba(79, 70, 229, 0.28) 0%, rgba(49, 46, 129, 0.88) 100%) !important;
-        border: 1px solid rgba(165, 180, 252, 0.38) !important;
-        border-radius: 18px !important;
-        box-shadow: 0 10px 32px rgba(30, 27, 75, 0.42), inset 0 1px 0 rgba(255,255,255,0.06) !important;
+        background: linear-gradient(165deg, rgba(30, 41, 59, 0.78) 0%, rgba(15, 23, 42, 0.88) 100%) !important;
+        border: 1px solid rgba(100, 116, 139, 0.40) !important;
+        border-radius: 14px !important;
+        box-shadow: 0 10px 26px rgba(2, 6, 23, 0.34), inset 0 1px 0 rgba(255,255,255,0.05) !important;
         padding: 1rem 1rem 1.2rem !important;
         margin-bottom: 0.75rem !important;
-        border-left: 3px solid rgba(129, 140, 248, 0.65) !important;
+        border-left: 3px solid rgba(59, 130, 246, 0.55) !important;
         transition: border-color 0.2s ease, box-shadow 0.2s ease;
     }
     section.main div[data-testid="stVerticalBlockBorderWrapper"]:hover {
@@ -5598,9 +12769,9 @@ def main() -> None:
             padding: 0.25rem !important;
         }
         .stTabs [data-baseweb="tab-list"] button {
-            min-height: 2.9rem !important;
-            padding: 0.35rem 0.2rem !important;
-            font-size: clamp(0.72rem, 2.8vw, 0.88rem) !important;
+            min-height: 1.75rem !important;
+            padding: 0.12rem 0.14rem !important;
+            font-size: clamp(0.58rem, 2.3vw, 0.72rem) !important;
         }
         div[data-testid="stMetric"] { padding: 0.8rem !important; }
     }
@@ -5608,23 +12779,368 @@ def main() -> None:
         """,
         unsafe_allow_html=True,
     )
+    # 화이트 톤 오버라이드 (요청 반영)
+    st.markdown(
+        """
+<style>
+    .stApp {
+        background: #f8fafc !important;
+        color: #0f172a !important;
+    }
+    section[data-testid="stSidebar"] {
+        background: #ffffff !important;
+        border-right: 1px solid #e2e8f0 !important;
+    }
+    section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
+    section[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p,
+    section[data-testid="stSidebar"] label,
+    section[data-testid="stSidebar"] label p,
+    section[data-testid="stSidebar"] .stCaption {
+        color: #0f172a !important;
+        opacity: 1 !important;
+    }
+    section[data-testid="stSidebar"] a.nav-link {
+        color: #0f172a !important;
+        background: #f8fafc !important;
+        border: 1px solid #d1d5db !important;
+        font-weight: 600 !important;
+    }
+    section[data-testid="stSidebar"] a.nav-link i,
+    section[data-testid="stSidebar"] a.nav-link span {
+        color: inherit !important;
+    }
+    section[data-testid="stSidebar"] a.nav-link.active {
+        color: #ffffff !important;
+        background: #111827 !important;
+        border-color: #111827 !important;
+    }
+    .main h1, .main h2, .main h3,
+    .main p, .main li, .main .stMarkdown,
+    .stCaption, [data-testid="stCaptionContainer"] > div {
+        color: #0f172a !important;
+        text-shadow: none !important;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        background: #ffffff !important;
+        border: 1px solid #e2e8f0 !important;
+    }
+    .stTabs [data-baseweb="tab-list"] button {
+        background: #f8fafc !important;
+        color: #334155 !important;
+        border: 1px solid #e2e8f0 !important;
+    }
+    .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
+        background: #0f172a !important;
+        color: #ffffff !important;
+        border-color: #0f172a !important;
+        box-shadow: none !important;
+    }
+    div[data-testid="stMetric"] {
+        background: #ffffff !important;
+        border: 1px solid #e2e8f0 !important;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08) !important;
+    }
+    section.main div[data-testid="stVerticalBlockBorderWrapper"] {
+        background: #ffffff !important;
+        border: 1px solid #e2e8f0 !important;
+        border-left: 3px solid #94a3b8 !important;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06) !important;
+    }
+    section.main div[data-testid="stVerticalBlockBorderWrapper"] p,
+    section.main div[data-testid="stVerticalBlockBorderWrapper"] li {
+        color: #0f172a !important;
+    }
+    /* 다크 테마 잔여 규칙 무력화: 라벨·메트릭·입력·알림·확장 패널 */
+    label[data-testid="stWidgetLabel"], label[data-testid="stWidgetLabel"] p {
+        color: #334155 !important;
+    }
+    section[data-testid="stSidebar"] label[data-testid="stWidgetLabel"],
+    section[data-testid="stSidebar"] label[data-testid="stWidgetLabel"] p {
+        color: #0f172a !important;
+    }
+    div[data-testid="stMetric"] [data-testid="stMetricLabel"] {
+        color: #475569 !important;
+    }
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] {
+        color: #0f172a !important;
+    }
+    div[data-testid="stMetric"] [data-testid="stMetricDelta"] {
+        color: #334155 !important;
+    }
+    div[data-testid="stAlert"] {
+        background: #ffffff !important;
+        border: 1px solid #e2e8f0 !important;
+        color: #0f172a !important;
+    }
+    div[data-testid="stAlert"] p,
+    div[data-testid="stAlert"] span,
+    div[data-testid="stAlert"] div {
+        color: #0f172a !important;
+    }
+    .stTextInput input, .stNumberInput input,
+    div[data-baseweb="input"] input,
+    div[data-baseweb="textarea"] textarea {
+        background-color: #ffffff !important;
+        color: #0f172a !important;
+        border: 1px solid #cbd5e1 !important;
+        caret-color: #0f172a !important;
+    }
+    div[data-baseweb="select"] > div,
+    div[data-baseweb="input"] > div,
+    div[data-baseweb="textarea"] > div {
+        background-color: #ffffff !important;
+        border-color: #cbd5e1 !important;
+        color: #0f172a !important;
+    }
+    div[data-baseweb="select"] span { color: #0f172a !important; }
+    div[data-baseweb="datepicker"] input, [data-testid="stDateInput"] input {
+        background-color: #ffffff !important;
+        color: #0f172a !important;
+        border-color: #cbd5e1 !important;
+    }
+    div[data-testid="stSlider"] label { color: #334155 !important; }
+    details summary, .streamlit-expanderHeader {
+        color: #0f172a !important;
+        background: #f1f5f9 !important;
+        border: 1px solid #e2e8f0 !important;
+    }
+    header[data-testid="stHeader"] {
+        background: #ffffff !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+    }
+    header[data-testid="stHeader"] [data-testid="stToolbar"] button {
+        color: #334155 !important;
+    }
+    /* 모바일: 사이드바 열기(>>) — testid가 버튼에 직접 붙음 */
+    button[data-testid="stExpandSidebarButton"] {
+        color: #0f172a !important;
+        background-color: #f1f5f9 !important;
+        border: 2px solid #475569 !important;
+        border-radius: 12px !important;
+        min-width: 2.85rem !important;
+        min-height: 2.85rem !important;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18) !important;
+    }
+    button[data-testid="stExpandSidebarButton"]:hover {
+        background-color: #e2e8f0 !important;
+        border-color: #0f172a !important;
+    }
+    button[data-testid="stExpandSidebarButton"] svg,
+    button[data-testid="stExpandSidebarButton"] span {
+        color: #0f172a !important;
+        fill: #0f172a !important;
+        stroke: #0f172a !important;
+    }
+    /* 접기 « — testid는 헤더 래퍼에, 기본 color가 fadedText60 */
+    div[data-testid="stSidebarCollapseButton"] {
+        color: #0f172a !important;
+    }
+    div[data-testid="stSidebarCollapseButton"] button {
+        color: #0f172a !important;
+        background-color: #f1f5f9 !important;
+        border: 2px solid #475569 !important;
+        border-radius: 12px !important;
+        min-width: 2.85rem !important;
+        min-height: 2.85rem !important;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.18) !important;
+    }
+    div[data-testid="stSidebarCollapseButton"] button:hover {
+        background-color: #e2e8f0 !important;
+        border-color: #0f172a !important;
+    }
+    div[data-testid="stSidebarCollapseButton"] svg,
+    div[data-testid="stSidebarCollapseButton"] span {
+        color: #0f172a !important;
+        fill: #0f172a !important;
+        stroke: #0f172a !important;
+    }
+    /* 구버전 Streamlit 등 */
+    button[kind="header"] {
+        color: #0f172a !important;
+        background-color: #f1f5f9 !important;
+        border: 2px solid #475569 !important;
+        border-radius: 12px !important;
+    }
+    .main a { color: #2563eb !important; }
+    .main a:visited { color: #4f46e5 !important; }
+    /* 중첩 탭(코스피/코스닥 등) */
+    .stTabs .stTabs [data-baseweb="tab-list"] {
+        background: #f8fafc !important;
+        border: 1px solid #e2e8f0 !important;
+    }
+    .stTabs .stTabs [data-baseweb="tab-list"] button {
+        background: #ffffff !important;
+        color: #334155 !important;
+        border: 1px solid #e2e8f0 !important;
+    }
+    .stTabs .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
+        background: #0f172a !important;
+        color: #ffffff !important;
+        border-color: #0f172a !important;
+    }
+    /* dataframe / table 주변 보조 텍스트 */
+    .stDataFrame, [data-testid="stDataFrame"] { color: #0f172a !important; }
+    button[kind="primary"] {
+        background: #0f172a !important;
+        color: #ffffff !important;
+        border: 1px solid #0f172a !important;
+    }
+    button[kind="secondary"] {
+        background: #f1f5f9 !important;
+        color: #0f172a !important;
+        border: 1px solid #cbd5e1 !important;
+    }
+</style>
+        """,
+        unsafe_allow_html=True,
+    )
+    # PC 레퍼런스 톤 강제 통일 (최종 오버라이드)
+    st.markdown(
+        """
+<style>
+    @media (min-width: 1024px) {
+        .main .block-container {
+            max-width: min(960px, calc(100vw - 2.5rem)) !important;
+            margin-left: auto !important;
+            margin-right: clamp(0.75rem, 2vw, 1.75rem) !important;
+            padding-top: 1.05rem !important;
+            padding-left: 1.25rem !important;
+            padding-right: 1.25rem !important;
+        }
+    }
+    .stApp {
+        background: #ffffff !important;
+        color: #111827 !important;
+    }
+    .main h1, .main h2, .main h3 {
+        color: #0b1220 !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.01em;
+    }
+    .main p, .main li, .main .stMarkdown, .stCaption {
+        color: #1f2937 !important;
+    }
+    section.main div[data-testid="stVerticalBlockBorderWrapper"] {
+        border: 1px solid #dbe3ee !important;
+        border-left: 1px solid #dbe3ee !important;
+        border-radius: 12px !important;
+        box-shadow: none !important;
+        background: #ffffff !important;
+    }
+    /* 탭: 포털·시장 공통 — 코스피 스캐너 서브탭과 동일하게 넉넉한 터치·줄바꿈 */
+    .stTabs [data-baseweb="tab-list"] {
+        background: #ffffff !important;
+        border: none !important;
+        border-bottom: 1px solid #d1d9e6 !important;
+        border-radius: 0 !important;
+        display: flex !important;
+        flex-wrap: wrap !important;
+        gap: 0.35rem !important;
+        row-gap: 0.4rem !important;
+        padding: 0.2rem 0 0.35rem 0 !important;
+        overflow-x: visible !important;
+    }
+    .stTabs [data-baseweb="tab-list"] button {
+        background: #ffffff !important;
+        border: none !important;
+        border-radius: 0 !important;
+        color: #374151 !important;
+        min-height: 2.75rem !important;
+        min-width: min(100%, 7.5rem) !important;
+        padding: 0.5rem 0.85rem !important;
+        font-size: clamp(0.88rem, 2.6vw, 1.02rem) !important;
+        font-weight: 600 !important;
+        flex: 1 1 auto !important;
+        white-space: normal !important;
+        word-break: keep-all !important;
+        text-align: center !important;
+        line-height: 1.25 !important;
+    }
+    .stTabs [data-baseweb="tab-list"] button[aria-selected="true"] {
+        color: #111827 !important;
+        border-bottom: 2px solid #111827 !important;
+        background: #ffffff !important;
+        box-shadow: none !important;
+    }
+    /* 중첩 탭(홈→부동산 내부 탭, 코스피→순위 테이블 등): 동일 높이·여백 유지 */
+    .stTabs .stTabs [data-baseweb="tab-list"] {
+        flex-wrap: wrap !important;
+        gap: 0.4rem !important;
+        padding: 0.25rem 0 !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+    }
+    .stTabs .stTabs [data-baseweb="tab-list"] button {
+        min-height: 2.75rem !important;
+        min-width: min(100%, 9rem) !important;
+        padding: 0.5rem 0.85rem !important;
+        font-size: clamp(0.88rem, 2.6vw, 1rem) !important;
+        flex: 1 1 calc(50% - 0.35rem) !important;
+    }
+    @media (max-width: 480px) {
+        .stTabs [data-baseweb="tab-list"] button,
+        .stTabs .stTabs [data-baseweb="tab-list"] button {
+            min-height: 2.7rem !important;
+            font-size: clamp(0.84rem, 3.1vw, 0.98rem) !important;
+            padding: 0.48rem 0.7rem !important;
+            flex: 1 1 calc(50% - 0.35rem) !important;
+            max-width: 100% !important;
+        }
+    }
+    /* 입력/버튼 톤도 통일 */
+    .stTextInput input, .stNumberInput input,
+    div[data-baseweb="input"] input, div[data-baseweb="select"] > div {
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 10px !important;
+        background: #ffffff !important;
+        color: #111827 !important;
+    }
+    button[kind="primary"] {
+        background: #111827 !important;
+        border-color: #111827 !important;
+        color: #ffffff !important;
+    }
+    button[kind="secondary"] {
+        background: #ffffff !important;
+        border: 1px solid #cbd5e1 !important;
+        color: #111827 !important;
+    }
+    /* 실까형: 좌측 내비 제거(상단 바만 사용) */
+    section[data-testid="stSidebar"] { display: none !important; }
+    div[data-testid="stSidebarCollapsedControl"] { display: none !important; }
+    /* 구버전 Streamlit 사이드 펼침 버튼 */
+    button[data-testid="stExpandSidebarButton"] { display: none !important; }
+    [data-testid="collapsedControl"] { display: none !important; }
+    /* 메인: 넓은 화면에서 오른쪽 정렬(실까처럼 본문이 우측 영역에 모임) */
+    .main .block-container {
+        max-width: min(960px, calc(100vw - 2.5rem)) !important;
+        margin-left: auto !important;
+        margin-right: clamp(0.5rem, 2vw, 1.75rem) !important;
+    }
+    @media (max-width: 640px) {
+        .main .block-container {
+            margin-left: auto !important;
+            margin-right: auto !important;
+            max-width: 100% !important;
+        }
+    }
+    div[data-testid="stMetric"] {
+        background: #f8fafc !important;
+        border: 1px solid #e2e8f0 !important;
+        box-shadow: none !important;
+    }
+    div[data-testid="stMetric"] [data-testid="stMetricLabel"] { color: #64748b !important; }
+    div[data-testid="stMetric"] [data-testid="stMetricValue"] { color: #0f172a !important; }
+</style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    selected = _sidebar_nav_select()
-    _sidebar_travel_country_picker(selected)
+    _app_path = Path(__file__).resolve()
+    _app_mtime_kst = _file_mtime_str_kst(_app_path)
+    st.caption(f"`app.py` 저장 시각(KST): {_app_mtime_kst}")
 
-    if selected == "홈":
-        st.title(APP_DISPLAY_TITLE)
-        _render_page_home()
-    elif selected == "코스닥 스캐너":
-        _render_page_kosdaq()
-    elif selected == "코스피 스캐너":
-        _render_page_kospi()
-    elif selected == "학사정보":
-        _render_page_haksa()
-    elif selected == "학습준비":
-        _render_page_learning_prep()
-    else:
-        _render_page_checklist()
+    _nav = _render_topbar_nav_select()
+    _render_group_market(_nav)
 
 if __name__ == "__main__":
     main()
